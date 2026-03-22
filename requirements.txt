@@ -1,0 +1,1 @@
+# 使用 AstrBot 内置 html_render（Playwright）渲染，无需额外依赖
