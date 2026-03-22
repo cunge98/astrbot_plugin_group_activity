@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.pyo
+activity_data.json
+push.bat
