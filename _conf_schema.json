@@ -1,0 +1,122 @@
+{
+  "enabled": {
+    "description": "全局开关",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后检测所有群聊。白名单有值则仅检测白名单群。黑名单群始终不检测。",
+    "obvious_hint": true
+  },
+  "theme": {
+    "description": "图片主题风格",
+    "type": "string",
+    "default": "清新蓝",
+    "options": ["清新蓝", "活力橙", "优雅紫", "暗夜模式"],
+    "hint": "选择生成图片的配色主题"
+  },
+  "whitelist_groups": {
+    "description": "白名单群号列表",
+    "type": "list",
+    "default": [],
+    "hint": "添加群号后仅检测这些群。留空则全局检测。"
+  },
+  "blacklist_groups": {
+    "description": "黑名单群号列表",
+    "type": "list",
+    "default": [],
+    "hint": "黑名单群永远不检测，优先级最高。"
+  },
+  "inactive_days": {
+    "description": "不活跃天数阈值",
+    "type": "int",
+    "default": 7,
+    "hint": "超过该天数未发言将收到警告"
+  },
+  "kick_hours": {
+    "description": "警告后踢出等待时间（小时）",
+    "type": "int",
+    "default": 24,
+    "hint": "收到警告后未发言则自动踢出"
+  },
+  "check_interval_minutes": {
+    "description": "自动检测间隔（分钟）",
+    "type": "int",
+    "default": 60,
+    "hint": "每隔多少分钟执行一次检测"
+  },
+  "exclude_admins": {
+    "description": "排除管理员和群主",
+    "type": "bool",
+    "default": true,
+    "hint": "管理员和群主不会被警告和踢出（仍显示在排行榜中）"
+  },
+  "new_member_grace_days": {
+    "description": "新成员免检天数",
+    "type": "int",
+    "default": 3,
+    "hint": "新入群成员在该天数内不会被检测"
+  },
+  "kick_message": {
+    "description": "踢出通知消息模板",
+    "type": "text",
+    "default": "成员 {nickname} 因超过 {days} 天未发言已被移出群聊。",
+    "hint": "支持变量: {nickname} {days}"
+  },
+  "rank_count": {
+    "description": "排行榜显示人数",
+    "type": "int",
+    "default": 20,
+    "hint": "排行榜最多显示的人数"
+  },
+  "ai_enabled": {
+    "description": "AI 增强开关",
+    "type": "bool",
+    "default": false,
+    "hint": "使用 LLM 生成拟人化警告、周报等。需要已配置 LLM。",
+    "obvious_hint": true
+  },
+  "ai_provider": {
+    "description": "AI 模型选择",
+    "type": "string",
+    "default": "",
+    "_special": "select_provider",
+    "hint": "选择 AI 模型。留空使用当前会话默认模型。"
+  },
+  "ai_style": {
+    "description": "AI 人设风格",
+    "type": "string",
+    "default": "傲娇萌妹",
+    "options": ["傲娇萌妹", "严苛群管", "毒舌段子手", "古风仙人", "热血解说员"],
+    "hint": "AI 生成文案的人设风格"
+  },
+  "ai_appeal": {
+    "description": "AI 求生申诉",
+    "type": "bool",
+    "default": false,
+    "hint": "被警告的成员可以 @机器人 说明理由，AI 裁决是否赦免"
+  },
+  "ai_custom_prompt": {
+    "description": "自定义 AI 人设 Prompt",
+    "type": "text",
+    "default": "",
+    "hint": "填写后将覆盖预设人设风格。留空使用上方选择的预设人设。示例：你是一个温柔的大姐姐..."
+  },
+  "auto_weekly": {
+    "description": "定时自动周报",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后每周自动发送 AI 群活跃周报到监控的群"
+  },
+  "auto_weekly_day": {
+    "description": "自动周报发送日",
+    "type": "string",
+    "default": "周日",
+    "options": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+    "hint": "每周几自动发送周报"
+  },
+  "auto_weekly_time": {
+    "description": "自动周报发送时间",
+    "type": "string",
+    "default": "20:00",
+    "hint": "格式 HH:MM（24小时制），如 20:30 表示晚上8点30分"
+  }
+}
