@@ -367,7 +367,7 @@ class GroupActivityPlugin(Star):
         except: return []
 
     async def _send_auto_weekly(self):
-        """发送自动周报图片到所有监控群（三级降级：base64图片 → 文件图片 → 纯文字）"""
+        """发送自动周报图片到所有监控群（四级降级：URL图片 → base64图片 → 文件图片 → 纯文字）"""
         cl = await self._cli()
         if not cl:
             logger.warning("自动周报: 未获取到bot客户端，跳过")
@@ -378,7 +378,7 @@ class GroupActivityPlugin(Star):
             return
         for gid in targets:
             sent = False
-            img_bytes = None
+            img_result = None   # str（渲染服务 URL）或 bytes（本地渲染）
             # 第一步：采集数据
             try:
                 data = await self._weekly_data(gid)
@@ -390,17 +390,17 @@ class GroupActivityPlugin(Star):
             # 第二步：渲染图片（带超时保护，60秒）
             if data:
                 try:
-                    img_bytes = await asyncio.wait_for(
+                    img_result = await asyncio.wait_for(
                         self._img(T.WEEKLY, data, gid=gid), timeout=60
                     )
-                    logger.info(f"自动周报渲染成功(群{gid}), {len(img_bytes) if img_bytes else 0} bytes")
+                    logger.info(f"自动周报渲染成功(群{gid})")
                 except asyncio.TimeoutError:
                     logger.error(f"自动周报渲染超时(群{gid})")
                 except Exception as e:
                     logger.error(f"自动周报渲染失败(群{gid}): {type(e).__name__}: {e}")
 
                 # 渲染失败时用最低质量再试一次
-                if not img_bytes and data:
+                if not img_result and data:
                     try:
                         tmpl = T.WEEKLY(self._theme())
                         data.setdefault("now", time.strftime("%Y-%m-%d %H:%M"))
@@ -408,7 +408,7 @@ class GroupActivityPlugin(Star):
                         gd = self.activity_data.get("groups", {}).get(str(gid), {})
                         data.setdefault("group_name", gd.get("group_name", "QQ群"))
                         data.setdefault("member_count", len(gd.get("members", {})))
-                        img_bytes = await asyncio.wait_for(
+                        img_result = await asyncio.wait_for(
                             self.html_render(tmpl, data, options={"full_page": True, "type": "jpeg", "quality": 70, "viewport_width": 540}),
                             timeout=30
                         )
@@ -417,42 +417,54 @@ class GroupActivityPlugin(Star):
                         logger.error(f"自动周报低质量渲染也失败(群{gid}): {e}")
 
             # 第三步：发送图片
-            if img_bytes:
-                # 尝试1: base64 消息段格式（和 event.image_result 底层一致）
-                try:
-                    b64 = base64.b64encode(img_bytes).decode()
-                    await cl.api.call_action("send_group_msg", group_id=int(gid),
-                                             message=[{"type": "image", "data": {"file": f"base64://{b64}"}}])
-                    logger.info(f"自动周报图片(base64段)已发送到群{gid}")
-                    sent = True
-                except Exception as e:
-                    logger.warning(f"自动周报base64段发送失败(群{gid}): {e}")
-
-                # 尝试2: 保存文件 + 消息段格式
-                if not sent:
+            if img_result:
+                # html_render 默认返回 URL 字符串（return_url=True），直接作为图片地址发送
+                if isinstance(img_result, str):
                     try:
-                        img_path = DATA_DIR / f"weekly_{gid}.png"
-                        img_path.write_bytes(img_bytes)
-                        file_uri = img_path.resolve().as_uri()
                         await cl.api.call_action("send_group_msg", group_id=int(gid),
-                                                 message=[{"type": "image", "data": {"file": file_uri}}])
-                        logger.info(f"自动周报图片(文件段)已发送到群{gid}")
+                                                 message=[{"type": "image", "data": {"file": img_result}}])
+                        logger.info(f"自动周报图片(URL)已发送到群{gid}")
                         sent = True
                     except Exception as e:
-                        logger.warning(f"自动周报文件段发送失败(群{gid}): {e}")
+                        logger.warning(f"自动周报图片(URL)发送失败(群{gid}): {e}")
 
-                # 尝试3: CQ 码兜底（兼容旧版 OneBot）
-                if not sent:
+                # 本地渲染返回 bytes 时走 base64 / 文件 / CQ 码降级链
+                elif isinstance(img_result, bytes):
+                    # 尝试1: base64 消息段格式
                     try:
-                        b64 = base64.b64encode(img_bytes).decode()
+                        b64 = base64.b64encode(img_result).decode()
                         await cl.api.call_action("send_group_msg", group_id=int(gid),
-                                                 message=f"[CQ:image,file=base64://{b64}]")
-                        logger.info(f"自动周报图片(CQ码)已发送到群{gid}")
+                                                 message=[{"type": "image", "data": {"file": f"base64://{b64}"}}])
+                        logger.info(f"自动周报图片(base64段)已发送到群{gid}")
                         sent = True
                     except Exception as e:
-                        logger.warning(f"自动周报CQ码发送失败(群{gid}): {e}")
+                        logger.warning(f"自动周报base64段发送失败(群{gid}): {e}")
 
-            # 尝试3: 文字降级
+                    # 尝试2: 保存文件 + 消息段格式
+                    if not sent:
+                        try:
+                            img_path = DATA_DIR / f"weekly_{gid}.png"
+                            img_path.write_bytes(img_result)
+                            file_uri = img_path.resolve().as_uri()
+                            await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                     message=[{"type": "image", "data": {"file": file_uri}}])
+                            logger.info(f"自动周报图片(文件段)已发送到群{gid}")
+                            sent = True
+                        except Exception as e:
+                            logger.warning(f"自动周报文件段发送失败(群{gid}): {e}")
+
+                    # 尝试3: CQ 码兜底（兼容旧版 OneBot）
+                    if not sent:
+                        try:
+                            b64 = base64.b64encode(img_result).decode()
+                            await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                     message=f"[CQ:image,file=base64://{b64}]")
+                            logger.info(f"自动周报图片(CQ码)已发送到群{gid}")
+                            sent = True
+                        except Exception as e:
+                            logger.warning(f"自动周报CQ码发送失败(群{gid}): {e}")
+
+            # 文字降级
             if not sent:
                 try:
                     report = await self._ai_report(gid) if not data else f"本周消息{data.get('this_week_msgs',0)}条，活跃{data.get('active_count',0)}人，被警告{data.get('warned',0)}人。"
