@@ -413,16 +413,28 @@ def WEEKLY(th):
 </div>
 {{% if ai1 %}}<div class="ai-blurb">🤖 {{{{ ai1 }}}}</div>{{% endif %}}
 <div class="sec">📈 近7天消息量</div>
-<div style="padding:16px 0 8px">
-  <div class="mini-bars">
+<div style="padding:12px 28px 4px">
+  <svg viewBox="0 0 420 90" width="100%" height="90" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="wbg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="{t['hdr1']}"/>
+        <stop offset="100%" stop-color="{t['hdr2']}" stop-opacity="0.5"/>
+      </linearGradient>
+    </defs>
     {{% for d in chart %}}
-    <div class="mini-col">
-      <div class="mini-val">{{{{ d.v }}}}</div>
-      <div class="mini-bar" style="height:{{{{ d.pct }}}}%"></div>
-      <div class="mini-label">{{{{ d.label }}}}</div>
-    </div>
+    {{% set bh = [d.pct * 65 // 100, 2]|max %}}
+    {{% set by = 65 - bh %}}
+    {{% set cx = loop.index0 * 60 + 30 %}}
+    <rect x="{{{{ loop.index0 * 60 + 6 }}}}" y="{{{{ by }}}}" width="48" height="{{{{ bh }}}}" rx="3" fill="url(#wbg)"/>
+    <text x="{{{{ cx }}}}" y="{{{{ [by - 2, 9]|max }}}}" text-anchor="middle" font-size="9" font-weight="600" fill="{t['text2']}">{{{{ d.v }}}}</text>
+    <text x="{{{{ cx }}}}" y="87" text-anchor="middle" font-size="9" fill="{t['subtle']}">{{{{ d.label }}}}</text>
+    {{% if not loop.last %}}
+    {{% set nbh = [chart[loop.index].pct * 65 // 100, 2]|max %}}
+    <line x1="{{{{ cx }}}}" y1="{{{{ by }}}}" x2="{{{{ loop.index * 60 + 30 }}}}" y2="{{{{ 65 - nbh }}}}" stroke="{t['hdr1']}" stroke-width="1.5" stroke-opacity="0.7"/>
+    {{% endif %}}
+    <circle cx="{{{{ cx }}}}" cy="{{{{ by }}}}" r="3" fill="{t['hdr1']}" stroke="white" stroke-width="1"/>
     {{% endfor %}}
-  </div>
+  </svg>
 </div>
 {{% if ai2 %}}<div class="ai-blurb">🤖 {{{{ ai2 }}}}</div>{{% endif %}}
 <div class="sec">🏆 本周最活跃 Top3</div>
@@ -565,15 +577,21 @@ def TREND(th):
 """ + """
 <div class="chart">
   <div class="chart-title">每日群消息数量</div>
-  <div class="bars">
+  <svg viewBox="0 0 490 160" width="100%" height="160" xmlns="http://www.w3.org/2000/svg">
     {% for d in data %}
-    <div class="bar-col">
-      <div class="bar-val">{{ d.v }}</div>
-      <div class="bar" style="height:{{ d.pct }}%;background:linear-gradient(180deg,{{ d.color }},{{ d.color2 }})"></div>
-      <div class="bar-label">{{ d.label }}</div>
-    </div>
+    {% set bh = [d.pct * 120 // 100, 2]|max %}
+    {% set by = 120 - bh %}
+    {% set cx = loop.index0 * 35 + 17 %}
+    <rect x="{{ loop.index0 * 35 + 4 }}" y="{{ by }}" width="27" height="{{ bh }}" rx="3" fill="{{ d.color }}" fill-opacity="0.8"/>
+    <text x="{{ cx }}" y="{{ [by - 2, 9]|max }}" text-anchor="middle" font-size="8" font-weight="600" fill="{{ d.color }}">{{ d.v }}</text>
+    <text x="{{ cx }}" y="142" text-anchor="middle" font-size="8" fill="#999">{{ d.label }}</text>
+    {% if not loop.last %}
+    {% set nbh = [data[loop.index].pct * 120 // 100, 2]|max %}
+    <line x1="{{ cx }}" y1="{{ by }}" x2="{{ loop.index * 35 + 17 }}" y2="{{ 120 - nbh }}" stroke="{{ d.color }}" stroke-width="1.5" stroke-opacity="0.8"/>
+    {% endif %}
+    <circle cx="{{ cx }}" cy="{{ by }}" r="3" fill="{{ d.color }}" stroke="white" stroke-width="1.5"/>
     {% endfor %}
-  </div>
+  </svg>
 </div>
 <div class="sec">数据概览</div>
 <div class="r"><span class="l">日均消息数</span><span class="v">{{ avg }}</span></div>
