@@ -774,11 +774,39 @@ def TOPIC(th):
     t = THEMES.get(th, THEMES["清新蓝"])
     return _css(th) + f"""
 <style>
-.topic-body{{padding:28px 28px 20px}}
-.topic-label{{display:inline-block;padding:3px 12px;border-radius:12px;font-size:12px;font-weight:700;background:{t['sec_bg']};color:{t['text2']};margin-bottom:16px}}
-.topic-q{{font-size:20px;font-weight:900;color:{t['text']};line-height:1.6;word-break:break-word}}
-.topic-footer{{display:flex;align-items:center;gap:8px;padding:14px 28px;background:{t['sec_bg']};border-top:1px solid {t['sec_border']};font-size:12px;color:{t['text2']}}}
-.topic-ai-badge{{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:linear-gradient(90deg,{t['stat_hdr1']},{t['stat_hdr2']});color:#fff}}
+/* ── 话题英雄区 ── */
+.topic-hero{{padding:32px 32px 24px;position:relative;overflow:hidden}}
+.topic-deco-q{{position:absolute;top:-10px;left:20px;font-size:120px;font-weight:900;
+  color:{t['query_hdr1']};opacity:.08;line-height:1;user-select:none;pointer-events:none}}
+.topic-deco-q2{{position:absolute;bottom:-30px;right:20px;font-size:120px;font-weight:900;
+  color:{t['query_hdr2']};opacity:.08;line-height:1;user-select:none;pointer-events:none}}
+.topic-tag{{display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:20px;
+  font-size:12px;font-weight:700;
+  background:linear-gradient(90deg,{t['query_hdr1']}22,{t['query_hdr2']}22);
+  color:{t['query_hdr1']};margin-bottom:18px;border:1px solid {t['query_hdr1']}44}}
+.topic-q{{font-size:22px;font-weight:900;color:{t['text']};line-height:1.7;
+  word-break:break-word;position:relative;z-index:1}}
+/* ── 讨论引导 ── */
+.topic-guide{{padding:0 28px 4px}}
+.topic-guide-item{{display:flex;align-items:flex-start;gap:12px;padding:13px 0;
+  border-bottom:1px solid {t['border']}}}
+.topic-guide-item:last-child{{border-bottom:none}}
+.topic-guide-icon{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;flex-shrink:0;background:{t['sec_bg']}}}
+.topic-guide-text{{flex:1}}
+.topic-guide-title{{font-size:13px;font-weight:700;color:{t['text']};margin-bottom:2px}}
+.topic-guide-sub{{font-size:11px;color:{t['text2']};line-height:1.5}}
+/* ── AI互动提示 ── */
+.topic-interact{{margin:16px 28px;border-radius:14px;
+  background:linear-gradient(135deg,{t['query_hdr1']}18,{t['query_hdr2']}18);
+  border:1px solid {t['query_hdr1']}33;padding:16px 20px;
+  display:flex;align-items:center;gap:14px}}
+.topic-interact-icon{{font-size:28px;flex-shrink:0}}
+.topic-interact-title{{font-size:13px;font-weight:900;color:{t['text']};margin-bottom:3px}}
+.topic-interact-sub{{font-size:11px;color:{t['text2']};line-height:1.5}}
+.topic-ai-badge{{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;
+  font-weight:700;background:linear-gradient(90deg,{t['stat_hdr1']},{t['stat_hdr2']});
+  color:#fff;margin-left:8px;vertical-align:middle}}
 </style>
 <div class="hdr" style="background:linear-gradient(135deg,{t['query_hdr1']},{t['query_hdr2']})">
   {_ANIME}
@@ -786,12 +814,42 @@ def TOPIC(th):
   {_META}
 </div>
 """ + """
-<div class="topic-body">
-  <div class="topic-label">今日话题</div>
+<div class="topic-hero">
+  <div class="topic-deco-q">"</div>
+  <div class="topic-deco-q2">"</div>
+  <div class="topic-tag">✨ 今日话题{% if is_ai %}<span class="topic-ai-badge">AI 生成</span>{% endif %}</div>
   <div class="topic-q">{{ topic }}</div>
 </div>
-<div class="topic-footer">
-  {% if is_ai %}<span class="topic-ai-badge">AI 生成</span>{% endif %}
-  <span>快来发表你的看法～ 💭</span>
+<div class="sec">💡 讨论方向参考</div>
+<div class="topic-guide">
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">💭</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">分享你的真实想法</div>
+      <div class="topic-guide-sub">你是怎么看这件事的？有没有类似的亲身经历？</div>
+    </div>
+  </div>
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">🔥</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">讲讲你的故事</div>
+      <div class="topic-guide-sub">和这个话题相关的记忆、趣事或难忘瞬间～</div>
+    </div>
+  </div>
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">🎯</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">换个角度想一想</div>
+      <div class="topic-guide-sub">如果你的答案和大多数人不同，那就更有意思了！</div>
+    </div>
+  </div>
+</div>
+<div class="topic-interact">
+  <div class="topic-interact-icon">🤖</div>
+  <div>
+    <div class="topic-interact-title">引用这条消息发言，AI 将与你互动！</div>
+    <div class="topic-interact-sub">AI 会根据你的回答内容做出有趣的个性化回复 ✨</div>
+  </div>
 </div>
 """ + _BRAND + _TAIL
+
