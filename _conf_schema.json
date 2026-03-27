@@ -40,7 +40,7 @@
   "check_interval_minutes": {
     "description": "自动检测间隔（分钟）",
     "type": "int",
-    "default": 60,
+    "default": 1,
     "hint": "每隔多少分钟执行一次检测"
   },
   "exclude_admins": {

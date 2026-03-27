@@ -76,6 +76,51 @@ class TestWelcomeTrigger:
                           if "_ai_welcome" in getattr(c, "__qualname__", "")]
         assert len(welcome_second) == 0
 
+    async def test_welcome_fires_for_rejoined_member(self, tmp_path):
+        """Member in _welcome_pending (rejoined) triggers welcome even if already in ms."""
+        cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin.activity_data["groups"]["7004"] = {
+            "members": {"u1": {"last_active": 0, "warned_at": None, "nickname": "Alice",
+                                "join_time": 1000, "role": "member", "streak": 0,
+                                "last_active_date": ""}},
+            "daily_stats": {},
+        }
+        plugin._welcome_pending.add(("7004", "u1"))
+        event = make_mock_event(group_id="7004", sender_id="u1", sender_name="Alice")
+        created = []
+        with patch("asyncio.create_task", side_effect=lambda c, **kw: created.append(c) or MagicMock()):
+            await plugin.on_msg(event)
+        for c in created:
+            if hasattr(c, "close"):
+                c.close()
+        welcome = [c for c in created if "_ai_welcome" in getattr(c, "__qualname__", "")]
+        assert len(welcome) >= 1
+        assert ("7004", "u1") not in plugin._welcome_pending
+
+    async def test_welcome_pending_consumed_after_trigger(self, tmp_path):
+        """_welcome_pending entry is removed after welcome fires so it won't repeat."""
+        cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin.activity_data["groups"]["7005"] = {
+            "members": {"u1": {"last_active": 0, "warned_at": None, "nickname": "Alice",
+                                "join_time": 1000, "role": "member", "streak": 0,
+                                "last_active_date": ""}},
+            "daily_stats": {},
+        }
+        plugin._welcome_pending.add(("7005", "u1"))
+        event = make_mock_event(group_id="7005", sender_id="u1", sender_name="Alice")
+        with patch("asyncio.create_task", return_value=MagicMock()):
+            await plugin.on_msg(event)
+        created = []
+        with patch("asyncio.create_task", side_effect=lambda c, **kw: created.append(c) or MagicMock()):
+            await plugin.on_msg(event)
+        for c in created:
+            if hasattr(c, "close"):
+                c.close()
+        welcome = [c for c in created if "_ai_welcome" in getattr(c, "__qualname__", "")]
+        assert len(welcome) == 0
+
     async def test_welcome_not_fired_when_disabled(self, tmp_path):
         """No welcome task when ai_welcome=False."""
         cfg = make_config(ai_welcome=False, welcome_style="简洁清爽")
