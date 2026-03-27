@@ -312,13 +312,14 @@ class GroupActivityPlugin(Star):
                     self._cleanup_old_stats()
                     last_cleanup = today
 
-                # 自动周报
+                # 自动周报：只要当天还没发过且已过目标时间，即触发
                 if (self.config.get("auto_weekly") and self.config.get("ai_enabled")
                         and self._is_weekly_day()
                         and last_weekly_date != today):
                     wh, wm = self._weekly_time()
                     now_dt = datetime.datetime.now()
-                    if now_dt.hour == wh and now_dt.minute >= wm and now_dt.minute < wm + max(self.config.get("check_interval_minutes", 60), 1):
+                    past_target = now_dt.hour > wh or (now_dt.hour == wh and now_dt.minute >= wm)
+                    if past_target:
                         await self._send_auto_weekly()
                         last_weekly_date = today
 

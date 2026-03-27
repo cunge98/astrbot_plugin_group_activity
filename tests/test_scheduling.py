@@ -188,3 +188,52 @@ class TestCleanupOldStats:
             "groups": {"1": {}}   # no 'daily_stats' key
         }
         plugin._cleanup_old_stats()   # should not raise
+
+
+# ── Weekly trigger: past_target condition ─────────────────────────────────────
+
+class TestWeeklyTriggerCondition:
+    """
+    Validates the 'past_target' logic:
+        past_target = now_dt.hour > wh or (now_dt.hour == wh and now_dt.minute >= wm)
+
+    Previously a narrow minute-window caused the trigger to be missed when the
+    loop checked *before* the target minute then slept past the target hour.
+    The fix uses a "already past" condition so any check after the target time
+    triggers the report.
+    """
+
+    def _past_target(self, now_h, now_m, wh, wm):
+        """Mirror of the in-loop condition."""
+        return now_h > wh or (now_h == wh and now_m >= wm)
+
+    def test_triggers_exactly_at_target_minute(self):
+        assert self._past_target(20, 30, 20, 30) is True
+
+    def test_triggers_one_minute_after_target(self):
+        assert self._past_target(20, 31, 20, 30) is True
+
+    def test_triggers_when_hour_is_past_target_hour(self):
+        # Loop ran 60 min late — used to be missed, now correctly triggers
+        assert self._past_target(21, 0, 20, 30) is True
+
+    def test_triggers_several_hours_late(self):
+        assert self._past_target(23, 59, 20, 0) is True
+
+    def test_does_not_trigger_before_target_minute(self):
+        assert self._past_target(20, 29, 20, 30) is False
+
+    def test_does_not_trigger_before_target_hour(self):
+        assert self._past_target(19, 59, 20, 0) is False
+
+    def test_does_not_trigger_at_midnight_for_8am_target(self):
+        assert self._past_target(0, 0, 8, 0) is False
+
+    def test_triggers_at_midnight_target(self):
+        assert self._past_target(0, 0, 0, 0) is True
+
+    def test_triggers_for_end_of_day_target_same_minute(self):
+        assert self._past_target(23, 59, 23, 59) is True
+
+    def test_does_not_trigger_one_minute_before_end_of_day_target(self):
+        assert self._past_target(23, 58, 23, 59) is False
