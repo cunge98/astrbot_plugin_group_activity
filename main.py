@@ -69,6 +69,7 @@ class GroupActivityPlugin(Star):
         self._bl_cache = None         # 黑名单缓存
         self._cache_time = 0          # 缓存刷新时间
         self._cache_ttl = 60          # 缓存有效期（秒）
+        self._welcome_pending: set = set()  # (gid, uid) 等待欢迎（重新入群）
         self._task = asyncio.create_task(self._loop())
         logger.info("群活跃检测插件 v2.1 已加载")
 
@@ -277,8 +278,10 @@ class GroupActivityPlugin(Star):
                    "join_time": old.get("join_time", now), "role": old.get("role", "member"),
                    "streak": streak, "last_active_date": today}
 
-        # 新成员首次发言：发送欢迎语（old 为空表示从未被追踪过）
-        if not old and self.config.get("ai_welcome"):
+        # 新成员首次发言或重新入群：发送欢迎语
+        _is_new = not old or (gid, sid) in self._welcome_pending
+        if _is_new and self.config.get("ai_welcome"):
+            self._welcome_pending.discard((gid, sid))
             asyncio.create_task(self._ai_welcome(gid, sid, nick, event.unified_msg_origin))
 
         # 每日群消息计数
@@ -592,6 +595,10 @@ class GroupActivityPlugin(Star):
             else:
                 ud=md[uid]; ud["nickname"]=nick; ud["role"]=role
                 if pls > ud.get("last_active",0): ud["last_active"]=pls; ud["warned_at"]=None
+                # 检测重新入群：API 的 join_time 比存档新 60 秒以上 → 曾被踢后又回来
+                if jt > ud.get("join_time", 0) + 60:
+                    self._welcome_pending.add((gid, uid))
+                    ud["join_time"] = jt; ud["warned_at"] = None
             if (self._bot_self_id and uid==self._bot_self_id) or (ea and role in ("admin","owner")): continue
             ud=md[uid]
             if ud.get("join_time",0) > gts: continue
