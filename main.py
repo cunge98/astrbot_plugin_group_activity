@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -274,6 +274,10 @@ class GroupActivityPlugin(Star):
 
         # 每日群消息计数
         gd["daily_stats"][today] = gd["daily_stats"].get(today, 0) + 1
+        # 每小时消息计数（用于时段热力图）
+        hour = str(datetime.datetime.now().hour)
+        gd.setdefault("hourly_stats", {}).setdefault(today, {})
+        gd["hourly_stats"][today][hour] = gd["hourly_stats"][today].get(hour, 0) + 1
 
         if warned and self._bot_self_id and self.config.get("ai_enabled") and self.config.get("ai_appeal"):
             msg = event.message_str or ""
@@ -334,15 +338,16 @@ class GroupActivityPlugin(Star):
             await asyncio.sleep(60)  # 每分钟轮询一次，周报时间精确到分钟
 
     def _cleanup_old_stats(self):
-        """清理 60 天前的 daily_stats"""
+        """清理 60 天前的 daily_stats 和 hourly_stats"""
         cutoff = (datetime.date.today() - datetime.timedelta(days=60)).isoformat()
         cleaned = False
         for gd in self.activity_data.get("groups", {}).values():
-            ds = gd.get("daily_stats", {})
-            old_keys = [k for k in ds if k < cutoff]
-            for k in old_keys:
-                del ds[k]
-                cleaned = True
+            for key in ("daily_stats", "hourly_stats"):
+                bucket = gd.get(key, {})
+                old_keys = [k for k in bucket if k < cutoff]
+                for k in old_keys:
+                    del bucket[k]
+                    cleaned = True
         if cleaned:
             self._dirty = True
 
@@ -803,6 +808,41 @@ class GroupActivityPlugin(Star):
                 "low_day": dates[low_i][5:], "low_val": vals[low_i],
                 "total_msgs": sum(vals)}, gid=gid))
         except Exception as e: logger.error(f"趋势渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
+
+    @filter.command("活跃热力图")
+    async def cmd_heatmap(self, event: AstrMessageEvent):
+        """近14天群发言时段分布热力图"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        gd = self.activity_data.get("groups", {}).get(gid, {})
+        hs = gd.get("hourly_stats", {})
+        if not hs: yield event.plain_result("暂无时段数据，需要积累一些消息记录。"); return
+
+        n = 14; today = datetime.date.today()
+        dates = [(today - datetime.timedelta(days=n-1-i)).isoformat() for i in range(n)]
+        hour_totals = [0] * 24
+        day_count = sum(1 for d in dates if d in hs)
+        for d in dates:
+            for h, cnt in hs.get(d, {}).items():
+                hour_totals[int(h)] += cnt
+
+        if day_count == 0: yield event.plain_result("暂无时段数据。"); return
+        hour_avgs = [round(t / day_count, 1) for t in hour_totals]
+        mx = max(hour_avgs) if max(hour_avgs) > 0 else 1
+        peak_h = hour_avgs.index(max(hour_avgs))
+        data = []
+        for h in range(24):
+            v = hour_avgs[h]; pct = int(v / mx * 100)
+            ratio = v / mx
+            r = int(79 + 176 * ratio); g = int(172 - 112 * ratio); b = int(254 - 124 * ratio)
+            data.append({"h": h, "label": f"{h:02d}", "v": v, "pct": pct,
+                         "color": f"rgb({min(r,255)},{max(g,60)},{max(b,130)})"})
+        try:
+            yield event.image_result(await self._img(T.HEATMAP, {
+                "days": day_count, "data": data,
+                "peak_hour": f"{peak_h:02d}:00", "peak_val": hour_avgs[peak_h],
+                "total_msgs": sum(hour_totals)}, gid=gid))
+        except Exception as e: logger.error(f"热力图渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
 
     @filter.command("手动检测")
     @filter.permission_type(filter.PermissionType.ADMIN)

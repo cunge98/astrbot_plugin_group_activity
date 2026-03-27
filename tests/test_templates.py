@@ -216,3 +216,30 @@ class TestTrendTemplate:
     def test_contains_bar_chart_structure(self, theme):
         result = T.TREND(theme)
         assert "mini-bar" in result or "bar" in result.lower()
+
+
+class TestHeatmapTemplate:
+    @pytest.mark.parametrize("theme", ALL_THEMES)
+    def test_returns_html(self, theme):
+        result = T.HEATMAP(theme)
+        assert "<!DOCTYPE html>" in result
+
+    @pytest.mark.parametrize("theme", ALL_THEMES)
+    def test_contains_24h_label(self, theme):
+        result = T.HEATMAP(theme)
+        assert "24小时热力图" in result
+
+    @pytest.mark.parametrize("theme", ALL_THEMES)
+    def test_contains_svg_chart(self, theme):
+        result = T.HEATMAP(theme)
+        assert "<svg" in result
+
+    @pytest.mark.parametrize("theme", ALL_THEMES)
+    def test_contains_peak_hour_placeholder(self, theme):
+        result = T.HEATMAP(theme)
+        assert "peak_hour" in result
+
+    @pytest.mark.parametrize("theme", ALL_THEMES)
+    def test_contains_time_slots(self, theme):
+        result = T.HEATMAP(theme)
+        assert "深夜" in result and "早间" in result and "晚间" in result
