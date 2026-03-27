@@ -282,7 +282,12 @@ class GroupActivityPlugin(Star):
         _is_new = not old or (gid, sid) in self._welcome_pending
         if _is_new and self.config.get("ai_welcome"):
             self._welcome_pending.discard((gid, sid))
-            asyncio.create_task(self._ai_welcome(gid, sid, nick, event.unified_msg_origin))
+            asyncio.create_task(self._ai_welcome(
+                gid, sid, nick, event.unified_msg_origin,
+                msg_id=getattr(event.message_obj, "message_id", None),
+                msg_text=event.message_str or "",
+                group_name=gd.get("group_name", ""),
+            ))
 
         # 每日群消息计数
         gd["daily_stats"][today] = gd["daily_stats"].get(today, 0) + 1
@@ -316,15 +321,19 @@ class GroupActivityPlugin(Star):
 
     # ==================== 入群欢迎 ====================
 
-    async def _ai_welcome(self, gid, sid, nick, umo=None):
-        """新成员首次发言时发送欢迎语 + 破冰问题"""
+    async def _ai_welcome(self, gid, sid, nick, umo=None, msg_id=None, msg_text="", group_name=""):
+        """新成员首次发言时引用回复欢迎语 + 破冰问题"""
         style = self.config.get("welcome_style", "AI生成")
         fallback = WELCOME_TEMPLATES["简洁清爽"].format(nickname=nick)
+        group_ctx = f"「{group_name}」" if group_name else "本群"
+        msg_ctx = f"，他/她刚才说：「{msg_text[:60]}」" if msg_text.strip() else ""
         if style == "AI生成":
             if self.config.get("ai_enabled"):
                 r = await self._ai(
-                    f"群里有新成员「{nick}」刚刚第一次发言。请生成一段温暖的欢迎语（50字以内）"
-                    f"并在最后提一个轻松有趣的破冰问题，帮助新成员融入群聊。直接输出，不要标题或前缀。",
+                    f"群{group_ctx}里有新成员「{nick}」刚刚第一次发言{msg_ctx}。"
+                    f"请用当前人设生成一段幽默温暖的欢迎语（60字以内），"
+                    f"可以适当接话或调侃他/她说的内容，最后提一个轻松有趣的破冰问题。"
+                    f"直接输出文案，不要标题或前缀。",
                     self._persona(), umo
                 )
                 msg = r.strip()[:300] if r else fallback
@@ -337,11 +346,12 @@ class GroupActivityPlugin(Star):
             msg = tpl.format(nickname=nick) if tpl else fallback
         else:
             msg = fallback
+        prefix = f"[CQ:reply,id={msg_id}]" if msg_id else ""
         try:
             cl = await self._cli()
             if cl:
                 await cl.api.call_action("send_group_msg", group_id=int(gid),
-                    message=f"[CQ:at,qq={sid}] {msg}")
+                    message=f"{prefix}{msg}")
         except Exception as e:
             logger.warning(f"入群欢迎失败(群{gid}): {e}")
 
