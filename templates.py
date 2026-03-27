@@ -241,6 +241,7 @@ def HELP(th):
 <div class="r"><span class="l">/活跃查询</span><span class="v">查询自己的活跃信息</span></div>
 <div class="r"><span class="l">/活跃趋势</span><span class="v">近14天群活跃趋势图</span></div>
 <div class="r"><span class="l">/活跃热力图</span><span class="v">近14天发言时段分布图</span></div>
+<div class="r"><span class="l">/打卡榜</span><span class="v">今日打卡排行 · 连续天数称号</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>
@@ -645,4 +646,52 @@ def HEATMAP(th):
 <div class="r"><span class="l">早间 (06-11)</span><span class="v">{% set n = data[6].v + data[7].v + data[8].v + data[9].v + data[10].v + data[11].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
 <div class="r"><span class="l">下午 (12-17)</span><span class="v">{% set n = data[12].v + data[13].v + data[14].v + data[15].v + data[16].v + data[17].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
 <div class="r"><span class="l">晚间 (18-23)</span><span class="v">{% set n = data[18].v + data[19].v + data[20].v + data[21].v + data[22].v + data[23].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+""" + _BRAND + _TAIL
+
+
+# ====== 打卡榜 ======
+def CHECKIN(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.streak-badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:{t['sec_bg']};color:{t['text2']}}}
+.checkin-stat{{display:flex;gap:20px;padding:14px 28px;background:{t['sec_bg']};border-top:1px solid {t['sec_border']}}}
+.checkin-stat-item{{flex:1;text-align:center}}
+.checkin-stat-num{{font-size:24px;font-weight:900;color:{t['text']}}}
+.checkin-stat-label{{font-size:11px;color:{t['text2']};margin-top:2px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['ok_hdr1']},{t['ok_hdr2']})">
+  {_ANIME}
+  <h1>📅 今日打卡榜</h1><div class="sub">{{{{ date }}}} · 连续活跃称号</div>
+  {_META_FULL}
+</div>
+""" + """
+{% if rows %}
+{% for r in rows %}
+<div class="rank-row">
+  <div class="rank-num">{{ ['🥇','🥈','🥉'][loop.index0] if loop.index <= 3 else loop.index }}</div>
+  <img class="rank-avatar" src="https://q1.qlogo.cn/g?b=qq&nk={{ r.qq }}&s=100" onerror="this.style.display='none'">
+  <div class="rank-info">
+    <div class="rank-name">{{ r.nick }}</div>
+    <div class="rank-detail"><span class="streak-badge">{{ r.title }}</span>&nbsp;&nbsp;🔥 连续 {{ r.streak }} 天</div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div style="padding:32px;text-align:center;font-size:14px;color:#999">今天还没有人打卡，快来第一个！🚀</div>
+{% endif %}
+<div class="checkin-stat">
+  <div class="checkin-stat-item">
+    <div class="checkin-stat-num" style="color:#2e7d32">{{ total }}</div>
+    <div class="checkin-stat-label">今日已打卡</div>
+  </div>
+  <div class="checkin-stat-item">
+    <div class="checkin-stat-num" style="color:#c62828">{{ [members_total - total, 0]|max }}</div>
+    <div class="checkin-stat-label">尚未打卡</div>
+  </div>
+  <div class="checkin-stat-item">
+    <div class="checkin-stat-num">{{ members_total }}</div>
+    <div class="checkin-stat-label">群成员总数</div>
+  </div>
+</div>
 """ + _BRAND + _TAIL
