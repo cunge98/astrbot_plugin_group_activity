@@ -582,12 +582,14 @@ class GroupActivityPlugin(Star):
             sent_msg_id = None
             if img_result:
                 sent_msg_id = await self._send_topic_img(cl, gid, img_result, topic)
-            elif not img_result:
+            # 图片渲染失败 或 图片发送失败（URL被NTQQ拒绝等），统一降级为文字发送
+            if not sent_msg_id:
                 try:
                     resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
                                                     message=f"💬 今日一问\n\n{topic}")
                     if isinstance(resp, dict):
                         sent_msg_id = resp.get("message_id")
+                    logger.info(f"每日一问文字降级发送成功(群{gid})")
                 except Exception as e:
                     logger.error(f"每日一问文字降级发送失败(群{gid}): {e}")
 
