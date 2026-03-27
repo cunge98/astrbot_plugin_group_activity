@@ -562,13 +562,20 @@ class GroupActivityPlugin(Star):
         today = datetime.date.today().isoformat()
         for gid in targets:
             gd = self.activity_data.setdefault("groups", {}).setdefault(gid, {})
-            # 幂等：今日已发送（有 msg_id）则跳过，防止插件重启或配置变更导致重复发送
             existing = gd.get("daily_topics", {}).get(today)
+            # 今日已成功发送（有 msg_id）则跳过
             if existing and existing.get("msg_id"):
                 logger.debug(f"每日一问今日已发送，跳过群{gid}")
                 continue
             group_name = gd.get("group_name", "")
-            topic, is_ai = await self._gen_topic(group_name)
+            # 重试场景：上次发送失败但话题已生成，直接复用，避免每次重试都生成不同话题
+            if existing and existing.get("topic"):
+                topic, is_ai = existing["topic"], existing.get("is_ai", False)
+            else:
+                topic, is_ai = await self._gen_topic(group_name)
+                # 先缓存话题（无 msg_id），发送失败重试时直接用
+                gd.setdefault("daily_topics", {})[today] = {"topic": topic, "is_ai": is_ai, "msg_id": None}
+                self._save()
             img_result = None
             try:
                 img_result = await asyncio.wait_for(
