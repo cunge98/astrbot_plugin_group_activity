@@ -278,11 +278,12 @@ class GroupActivityPlugin(Star):
         hour = str(datetime.datetime.now().hour)
         gd.setdefault("hourly_stats", {}).setdefault(today, {})
         gd["hourly_stats"][today][hour] = gd["hourly_stats"][today].get(hour, 0) + 1
-        # 每日首次发言：打卡登记 + 里程碑检测
+        # 打卡登记：每天只出现一次，但每次发言都补录（兼容插件升级前已发言的情况）
+        checkins_today = gd.setdefault("daily_checkins", {}).setdefault(today, [])
+        if sid not in checkins_today:
+            checkins_today.append(sid)
+        # 里程碑检测只在真正的首次发言时触发
         if old_date != today:
-            gd.setdefault("daily_checkins", {}).setdefault(today, [])
-            if sid not in gd["daily_checkins"][today]:
-                gd["daily_checkins"][today].append(sid)
             if streak in (7, 14, 30) and self.config.get("enabled"):
                 asyncio.create_task(self._announce_milestone(gid, sid, nick, streak))
 

@@ -69,6 +69,23 @@ class TestCheckinCollection:
         checkins = plugin.activity_data["groups"]["5003"]["daily_checkins"][today]
         assert checkins == ["u1", "u2", "u3"]
 
+    async def test_backfill_user_already_active_today(self, plugin):
+        """User whose last_active_date is already today (pre-upgrade) is still registered."""
+        gid = "5005"
+        today = datetime.date.today().isoformat()
+        plugin.activity_data["groups"][gid] = {
+            "members": {"u1": {"last_active": 0, "last_active_date": today,
+                                "streak": 3, "nickname": "Alice", "join_time": 0,
+                                "role": "member", "warned_at": None}},
+            "daily_stats": {},
+            "daily_checkins": {},
+        }
+        event = make_mock_event(group_id=gid, sender_id="u1")
+        await plugin.on_msg(event)
+
+        checkins = plugin.activity_data["groups"][gid]["daily_checkins"].get(today, [])
+        assert "u1" in checkins
+
     async def test_new_day_starts_fresh(self, plugin):
         """Checkins on different days are stored separately."""
         gid = "5004"
