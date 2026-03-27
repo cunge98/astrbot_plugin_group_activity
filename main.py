@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -956,6 +956,88 @@ class GroupActivityPlugin(Star):
             }, gid=gid))
         except Exception as e:
             logger.error(f"打卡榜渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
+
+    # ==================== 活跃评分 ====================
+
+    @staticmethod
+    def _calc_score(gd: dict) -> dict:
+        """计算群活跃综合评分，返回分项得分和总分信息。"""
+        today = datetime.date.today()
+        ms = gd.get("members", {})
+        daily = gd.get("daily_stats", {})
+        checkins = gd.get("daily_checkins", {})
+        total_members = len(ms)
+
+        # ── 维度1：近7天日均发言量（35分）────────────────────────────
+        days7 = [(today - datetime.timedelta(days=i)).isoformat() for i in range(7)]
+        msgs7 = [daily.get(d, 0) for d in days7]
+        avg7 = sum(msgs7) / 7
+        # 参考基准：日均 50 条视为满分，线性映射
+        score_msg = min(35, int(avg7 / 50 * 35))
+
+        # ── 维度2：活跃成员占比（25分）──────────────────────────────
+        if total_members > 0:
+            active_uids = set()
+            for d in days7:
+                active_uids.update(checkins.get(d, []))
+            active_ratio = len(active_uids) / total_members
+            score_active = min(25, int(active_ratio * 25))
+        else:
+            score_active = 0
+
+        # ── 维度3：连续打卡率（20分）────────────────────────────────
+        if total_members > 0:
+            streak3 = sum(1 for m in ms.values() if m.get("streak", 0) >= 3)
+            score_streak = min(20, int(streak3 / total_members * 20))
+        else:
+            score_streak = 0
+
+        # ── 维度4：成员健康度（20分）────────────────────────────────
+        warned = sum(1 for m in ms.values() if m.get("warned_at"))
+        warn_ratio = warned / total_members if total_members > 0 else 0
+        score_health = max(0, 20 - int(warn_ratio * 40))  # 每 2.5% 警告率扣 1 分
+
+        total = score_msg + score_active + score_streak + score_health
+
+        _GRADE_COLOR = {"S": "#f5a623", "A": "#e74c3c", "B": "#2ecc71", "C": "#3498db", "D": "#95a5a6"}
+        if total >= 90:   grade, label, icon = "S", "传说级活跃群", "🏆"
+        elif total >= 75: grade, label, icon = "A", "高度活跃",    "🔥"
+        elif total >= 60: grade, label, icon = "B", "正常活跃",    "⚡"
+        elif total >= 45: grade, label, icon = "C", "有些沉寂",    "😴"
+        else:             grade, label, icon = "D", "需要振兴",    "💤"
+
+        return {
+            "total": total,
+            "grade": grade, "label": label, "icon": icon,
+            "grade_color": _GRADE_COLOR[grade],
+            "dims": [
+                {"name": "日均发言量", "score": score_msg,    "max": 35,
+                 "pct": score_msg * 100 // 35},
+                {"name": "活跃成员占比", "score": score_active, "max": 25,
+                 "pct": score_active * 100 // 25},
+                {"name": "连续打卡率",  "score": score_streak, "max": 20,
+                 "pct": score_streak * 100 // 20},
+                {"name": "成员健康度",  "score": score_health, "max": 20,
+                 "pct": score_health * 100 // 20},
+            ],
+            "total_members": total_members,
+            "msgs7": sum(msgs7),
+            "avg7": round(avg7, 1),
+        }
+
+    @filter.command("活跃评分")
+    async def cmd_score(self, event: AstrMessageEvent):
+        """群活跃综合评分卡"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        gd = self.activity_data.get("groups", {}).get(gid, {})
+        score_data = self._calc_score(gd)
+        score_data["date"] = datetime.date.today().isoformat()
+        score_data["group_name"] = gd.get("group_name", "")
+        try:
+            yield event.image_result(await self._img(T.SCORE, score_data, gid=gid))
+        except Exception as e:
+            logger.error(f"评分卡渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
 
     @filter.command("手动检测")
     @filter.permission_type(filter.PermissionType.ADMIN)

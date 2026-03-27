@@ -218,7 +218,7 @@ _META_FULL = '<div class="meta"><span>{{ group_name }}</span><span>共 {{ member
 _META = '<div class="meta"><span>{{ now }}</span></div><div class="slogan">{{ slogan }}</div>'
 
 # 品牌底栏（Jinja2 模板）
-_BRAND = '<div class="brand"><span>群活跃检测 v2.1</span><span>·</span><span>{{ now }}</span></div>'
+_BRAND = '<div class="brand"><span>群活跃检测 v2.2</span><span>·</span><span>{{ now }}</span></div>'
 
 _TAIL = """
 </div>
@@ -232,7 +232,7 @@ def HELP(th):
     return _css(th) + f"""
 <div class="hdr" style="background:linear-gradient(135deg,{t['help_hdr1']},{t['help_hdr2']})">
   {_ANIME}
-  <h1>📋 群活跃检测 · 指令帮助</h1><div class="sub">AI 增强版 v2.1</div>
+  <h1>📋 群活跃检测 · 指令帮助</h1><div class="sub">AI 增强版 v2.2</div>
   {_META}
 </div>
 """ + """
@@ -242,6 +242,7 @@ def HELP(th):
 <div class="r"><span class="l">/活跃趋势</span><span class="v">近14天群活跃趋势图</span></div>
 <div class="r"><span class="l">/活跃热力图</span><span class="v">近14天发言时段分布图</span></div>
 <div class="r"><span class="l">/打卡榜</span><span class="v">今日打卡排行 · 连续天数称号</span></div>
+<div class="r"><span class="l">/活跃评分</span><span class="v">群活跃综合评分卡（S/A/B/C/D 级）</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>
@@ -692,6 +693,76 @@ def CHECKIN(th):
   <div class="checkin-stat-item">
     <div class="checkin-stat-num">{{ members_total }}</div>
     <div class="checkin-stat-label">群成员总数</div>
+  </div>
+</div>
+""" + _BRAND + _TAIL
+
+
+# ====== 活跃评分卡 ======
+def SCORE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.score-hero{{display:flex;align-items:center;gap:24px;padding:20px 28px;background:{t['sec_bg']};border-bottom:1px solid {t['sec_border']}}}
+.score-circle{{width:96px;height:96px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-weight:900;box-shadow:0 4px 16px rgba(0,0,0,.12)}}
+.score-grade{{font-size:42px;line-height:1;color:#fff}}
+.score-pts{{font-size:13px;color:rgba(255,255,255,.85);margin-top:2px}}
+.score-label-title{{font-size:20px;font-weight:900;color:{t['text']}}}
+.score-label-sub{{font-size:13px;color:{t['text2']};margin-top:4px}}
+.score-bar-wrap{{padding:0 28px 8px}}
+.score-bar-row{{margin:10px 0}}
+.score-bar-meta{{display:flex;justify-content:space-between;font-size:12px;color:{t['text2']};margin-bottom:4px}}
+.score-bar-bg{{height:10px;border-radius:5px;background:{t['border']};overflow:hidden}}
+.score-bar-fill{{height:100%;border-radius:5px}}
+.score-stat{{display:flex;border-top:1px solid {t['sec_border']}}}
+.score-stat-item{{flex:1;padding:12px 0;text-align:center;border-right:1px solid {t['sec_border']}}}
+.score-stat-item:last-child{{border-right:none}}
+.score-stat-num{{font-size:20px;font-weight:900;color:{t['text']}}}
+.score-stat-label{{font-size:11px;color:{t['text2']};margin-top:2px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']})">
+  {_ANIME}
+  <h1>📊 活跃评分卡</h1><div class="sub">{{{{ date }}}} · {{{{ group_name }}}}</div>
+  {_META}
+</div>
+""" + """
+<div class="score-hero">
+  <div class="score-circle" style="background:linear-gradient(135deg,{{ grade_color }}cc,{{ grade_color }})">
+    <div class="score-grade">{{ grade }}</div>
+    <div class="score-pts">{{ total }}分</div>
+  </div>
+  <div>
+    <div class="score-label-title">{{ icon }} {{ label }}</div>
+    <div class="score-label-sub">综合得分：{{ total }} / 100 分</div>
+  </div>
+</div>
+<div class="sec">评分维度</div>
+<div class="score-bar-wrap">
+{% for d in dims %}
+<div class="score-bar-row">
+  <div class="score-bar-meta">
+    <span>{{ d.name }}</span>
+    <span>{{ d.score }} / {{ d.max }} 分</span>
+  </div>
+  <div class="score-bar-bg">
+    <div class="score-bar-fill" style="width:{{ d.pct }}%;background:linear-gradient(90deg,#43e97b,#38f9d7)"></div>
+  </div>
+</div>
+{% endfor %}
+</div>
+<div class="sec">群概况</div>
+<div class="score-stat">
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ total_members }}</div>
+    <div class="score-stat-label">群成员总数</div>
+  </div>
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ avg7 }}</div>
+    <div class="score-stat-label">日均消息量</div>
+  </div>
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ msgs7 }}</div>
+    <div class="score-stat-label">近7天总量</div>
   </div>
 </div>
 """ + _BRAND + _TAIL
