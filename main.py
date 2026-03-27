@@ -499,6 +499,14 @@ class GroupActivityPlugin(Star):
         if gid not in self.activity_data["groups"]:
             self.activity_data["groups"][gid] = {"members": {}}
         md = self.activity_data["groups"][gid]["members"]; wc=kc=0
+        # 清理已不在群里的成员（手动踢出、主动退群等）
+        current_uids = {str(m.get("user_id", "")) for m in ml}
+        departed = [uid for uid in list(md) if uid not in current_uids]
+        for uid in departed:
+            del md[uid]
+        if departed:
+            self._dirty = True
+            logger.info(f"群{gid} 清理已离群成员 {len(departed)} 人: {departed}")
         for m in ml:
             uid, role = str(m.get("user_id","")), m.get("role","member")
             nick = m.get("card") or m.get("nickname") or uid

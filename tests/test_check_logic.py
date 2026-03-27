@@ -305,3 +305,90 @@ class TestKickSideEffect:
         await plugin._kick(cl, gid, uid, "Del")
 
         assert uid not in plugin.activity_data["groups"][gid]["members"]
+
+
+# ── departed member cleanup in _check ─────────────────────────────────────────
+
+class TestDepartedMemberCleanup:
+    """
+    When a member is manually kicked or leaves the group outside the plugin,
+    _check should detect they are no longer in the API member list and remove
+    their record from activity_data.
+    """
+
+    async def test_removes_member_not_in_api_list(self, plugin):
+        """Member in activity_data but absent from get_group_member_list is removed."""
+        now = int(time.time())
+        gid = "30001"
+        staying_uid = "3001"
+        departed_uid = "3002"   # manually kicked — not in API list
+
+        _add_member(plugin, gid, staying_uid, now - 86400)
+        _add_member(plugin, gid, departed_uid, now - 86400)
+
+        # API only returns the staying member
+        cl = make_mock_client(member_list=[_make_ml_member(int(staying_uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        members = plugin.activity_data["groups"][gid]["members"]
+        assert departed_uid not in members
+        assert staying_uid in members
+
+    async def test_departed_member_removed_and_staying_member_intact(self, plugin):
+        now = int(time.time())
+        gid = "30002"
+        staying_uid = "3003"
+        departed_uid = "3099"
+        _add_member(plugin, gid, staying_uid, now - 86400)
+        _add_member(plugin, gid, departed_uid, now - 86400)
+
+        # Only staying member is returned by API; departed member should be cleaned up
+        cl = make_mock_client(member_list=[_make_ml_member(int(staying_uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        members = plugin.activity_data["groups"][gid]["members"]
+        assert departed_uid not in members
+        assert staying_uid in members
+
+    async def test_no_dirty_flag_when_no_departures(self, plugin):
+        now = int(time.time())
+        gid = "30003"
+        uid = "3004"
+        _add_member(plugin, gid, uid, now - 86400)
+
+        plugin._dirty = False
+        cl = make_mock_client(member_list=[_make_ml_member(int(uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        # _save() is always called but _dirty was False before, so it stays False
+        assert plugin._dirty is False
+
+    async def test_multiple_departed_members_all_removed(self, plugin):
+        now = int(time.time())
+        gid = "30004"
+        for uid in ["4001", "4002", "4003"]:
+            _add_member(plugin, gid, uid, now - 86400)
+
+        # Only 4001 remains
+        cl = make_mock_client(member_list=[_make_ml_member(4001)])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        members = plugin.activity_data["groups"][gid]["members"]
+        assert "4001" in members
+        assert "4002" not in members
+        assert "4003" not in members
+
+    async def test_staying_members_data_preserved(self, plugin):
+        """Cleanup must not corrupt data of members who are still in the group."""
+        now = int(time.time())
+        gid = "30005"
+        uid = "5001"
+        _add_member(plugin, gid, uid, now - 86400, warned_at=now - 1000)
+        _add_member(plugin, gid, "5002", now - 86400)  # will be removed
+
+        cl = make_mock_client(member_list=[_make_ml_member(int(uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        ud = plugin.activity_data["groups"][gid]["members"].get(uid)
+        assert ud is not None
+        assert "5002" not in plugin.activity_data["groups"][gid]["members"]
