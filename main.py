@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -44,6 +44,11 @@ FALLBACK = [
     "喂喂喂，{nickname}！潜水 {days} 天了？{hours} 小时内不发言就拜拜了！",
     "{nickname} 同学，沉默了 {days} 天。还有 {hours} 小时的机会，冒个泡吧！",
 ]
+WELCOME_TEMPLATES = {
+    "活力热血": "🎉🎉 欢迎新成员 {nickname} 强势入场！！这里的群友个个身怀绝技，期待你的精彩表现！快告诉大家你有什么拿手绝活或特别的爱好？⚡",
+    "古风雅致": "缘起缘落，缘分使然。欢迎 {nickname} 踏入此间，愿在此留下美好足迹。🌸 敢问阁下平日里有何雅好，可与众人共赏？",
+    "简洁清爽": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
+}
 
 
 @register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.1.0")
@@ -272,6 +277,10 @@ class GroupActivityPlugin(Star):
                    "join_time": old.get("join_time", now), "role": old.get("role", "member"),
                    "streak": streak, "last_active_date": today}
 
+        # 新成员首次发言：发送欢迎语（old 为空表示从未被追踪过）
+        if not old and self.config.get("ai_welcome"):
+            asyncio.create_task(self._ai_welcome(gid, sid, nick, event.unified_msg_origin))
+
         # 每日群消息计数
         gd["daily_stats"][today] = gd["daily_stats"].get(today, 0) + 1
         # 每小时消息计数（用于时段热力图）
@@ -301,6 +310,37 @@ class GroupActivityPlugin(Star):
             ok, comment = await self._ai_judge(nick, reason, days, event.unified_msg_origin)
             await event.send(event.plain_result(f"[AI 裁决] {nick} 的申诉{'通过' if ok else '被驳回'}！\n{comment}"))
         except Exception as e: logger.error(f"AI申诉失败: {e}")
+
+    # ==================== 入群欢迎 ====================
+
+    async def _ai_welcome(self, gid, sid, nick, umo=None):
+        """新成员首次发言时发送欢迎语 + 破冰问题"""
+        style = self.config.get("welcome_style", "AI生成")
+        fallback = WELCOME_TEMPLATES["简洁清爽"].format(nickname=nick)
+        if style == "AI生成":
+            if self.config.get("ai_enabled"):
+                r = await self._ai(
+                    f"群里有新成员「{nick}」刚刚第一次发言。请生成一段温暖的欢迎语（50字以内）"
+                    f"并在最后提一个轻松有趣的破冰问题，帮助新成员融入群聊。直接输出，不要标题或前缀。",
+                    self._persona(), umo
+                )
+                msg = r.strip()[:300] if r else fallback
+            else:
+                msg = fallback
+        elif style in WELCOME_TEMPLATES:
+            msg = WELCOME_TEMPLATES[style].format(nickname=nick)
+        elif style == "自定义":
+            tpl = self.config.get("welcome_message", "").strip()
+            msg = tpl.format(nickname=nick) if tpl else fallback
+        else:
+            msg = fallback
+        try:
+            cl = await self._cli()
+            if cl:
+                await cl.api.call_action("send_group_msg", group_id=int(gid),
+                    message=f"[CQ:at,qq={sid}] {msg}")
+        except Exception as e:
+            logger.warning(f"入群欢迎失败(群{gid}): {e}")
 
     # ==================== 打卡 ====================
 
