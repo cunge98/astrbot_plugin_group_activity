@@ -240,6 +240,7 @@ def HELP(th):
 <div class="r"><span class="l">/活跃排行</span><span class="v">查看群活跃排行榜</span></div>
 <div class="r"><span class="l">/活跃查询</span><span class="v">查询自己的活跃信息</span></div>
 <div class="r"><span class="l">/活跃趋势</span><span class="v">近14天群活跃趋势图</span></div>
+<div class="r"><span class="l">/活跃热力图</span><span class="v">近14天发言时段分布图</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>
@@ -598,4 +599,50 @@ def TREND(th):
 <div class="r"><span class="l">最高峰</span><span class="v">{{ peak_day }} ({{ peak_val }}条)</span></div>
 <div class="r"><span class="l">最低谷</span><span class="v">{{ low_day }} ({{ low_val }}条)</span></div>
 <div class="r"><span class="l">总消息数</span><span class="v">{{ total_msgs }}</span></div>
+""" + _BRAND + _TAIL
+
+
+# ====== 时段热力图 ======
+def HEATMAP(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.hmap-wrap{{padding:16px 28px 8px}}
+.hmap-title{{font-size:13px;color:{t['text2']};margin-bottom:10px}}
+.hmap-peak{{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;background:{t['sec_bg']};color:{t['text']}}}
+.hmap-note{{font-size:11px;color:{t['subtle']};margin-top:8px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['trend_hdr1']},{t['trend_hdr2']},{t['trend_hdr3']})">
+  {_ANIME}
+  <h1>🕐 发言时段分布</h1><div class="sub">近 {{{{ days }}}} 天 · 24小时热力图</div>
+  {_META}
+</div>
+""" + """
+<div class="hmap-wrap">
+  <div class="hmap-title">每小时平均发言量（近 {{ days }} 天均值）</div>
+  <svg viewBox="0 0 504 130" width="100%" height="130" xmlns="http://www.w3.org/2000/svg">
+    {% for d in data %}
+    {% set bh = [d.pct * 90 // 100, 2]|max %}
+    {% set by = 90 - bh %}
+    {% set cx = loop.index0 * 21 + 10 %}
+    <rect x="{{ loop.index0 * 21 + 2 }}" y="{{ by }}" width="17" height="{{ bh }}" rx="2" fill="{{ d.color }}" fill-opacity="0.85"/>
+    {% if d.pct >= 20 %}
+    <text x="{{ cx }}" y="{{ [by - 2, 8]|max }}" text-anchor="middle" font-size="8" font-weight="700" fill="{{ d.color }}" stroke="white" stroke-width="2" paint-order="stroke fill">{{ d.v }}</text>
+    {% endif %}
+    {% if loop.index0 % 3 == 0 %}
+    <text x="{{ cx }}" y="118" text-anchor="middle" font-size="9" fill="#999">{{ d.label }}</text>
+    {% endif %}
+    {% endfor %}
+    <line x1="0" y1="92" x2="504" y2="92" stroke="#ddd" stroke-width="0.5"/>
+  </svg>
+  <div class="hmap-note">
+    🔥 最活跃时段：<span class="hmap-peak">{{ peak_hour }}（均 {{ peak_val }} 条/天）</span>
+    &nbsp;&nbsp;统计消息总量：{{ total_msgs }} 条
+  </div>
+</div>
+<div class="sec">时段说明</div>
+<div class="r"><span class="l">深夜 (00-05)</span><span class="v">{% set n = data[0].v + data[1].v + data[2].v + data[3].v + data[4].v + data[5].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+<div class="r"><span class="l">早间 (06-11)</span><span class="v">{% set n = data[6].v + data[7].v + data[8].v + data[9].v + data[10].v + data[11].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+<div class="r"><span class="l">下午 (12-17)</span><span class="v">{% set n = data[12].v + data[13].v + data[14].v + data[15].v + data[16].v + data[17].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+<div class="r"><span class="l">晚间 (18-23)</span><span class="v">{% set n = data[18].v + data[19].v + data[20].v + data[21].v + data[22].v + data[23].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
 """ + _BRAND + _TAIL
