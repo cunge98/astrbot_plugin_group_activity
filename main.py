@@ -322,36 +322,37 @@ class GroupActivityPlugin(Star):
     # ==================== 入群欢迎 ====================
 
     async def _ai_welcome(self, gid, sid, nick, umo=None, msg_id=None, msg_text="", group_name=""):
-        """新成员首次发言时引用回复欢迎语 + 破冰问题"""
+        """新成员首次发言时 @ 欢迎 + 破冰问题"""
         style = self.config.get("welcome_style", "AI生成")
-        fallback = WELCOME_TEMPLATES["简洁清爽"].format(nickname=nick)
+        # nick == sid 说明没有群名片，用「新成员」避免 QQ 号出现在文案里
+        display = nick if nick != sid else "新成员"
+        fallback = WELCOME_TEMPLATES["简洁清爽"].format(nickname=display)
         group_ctx = f"「{group_name}」" if group_name else "本群"
         msg_ctx = f"，他/她刚才说：「{msg_text[:60]}」" if msg_text.strip() else ""
         if style == "AI生成":
             if self.config.get("ai_enabled"):
                 r = await self._ai(
-                    f"群{group_ctx}里有新成员「{nick}」刚刚第一次发言{msg_ctx}。"
+                    f"群{group_ctx}里有新成员「{display}」刚刚第一次发言{msg_ctx}。"
                     f"请用当前人设生成一段幽默温暖的欢迎语（60字以内），"
                     f"可以适当接话或调侃他/她说的内容，最后提一个轻松有趣的破冰问题。"
-                    f"直接输出文案，不要标题或前缀。",
+                    f"直接输出文案，不要在开头重复对方名字或加「@」前缀。",
                     self._persona(), umo
                 )
                 msg = r.strip()[:300] if r else fallback
             else:
                 msg = fallback
         elif style in WELCOME_TEMPLATES:
-            msg = WELCOME_TEMPLATES[style].format(nickname=nick)
+            msg = WELCOME_TEMPLATES[style].format(nickname=display)
         elif style == "自定义":
             tpl = self.config.get("welcome_message", "").strip()
-            msg = tpl.format(nickname=nick) if tpl else fallback
+            msg = tpl.format(nickname=display) if tpl else fallback
         else:
             msg = fallback
-        prefix = f"[CQ:reply,id={msg_id}]" if msg_id else ""
         try:
             cl = await self._cli()
             if cl:
                 await cl.api.call_action("send_group_msg", group_id=int(gid),
-                    message=f"{prefix}{msg}")
+                    message=f"[CQ:at,qq={sid}] {msg}")
         except Exception as e:
             logger.warning(f"入群欢迎失败(群{gid}): {e}")
 
