@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -278,6 +278,13 @@ class GroupActivityPlugin(Star):
         hour = str(datetime.datetime.now().hour)
         gd.setdefault("hourly_stats", {}).setdefault(today, {})
         gd["hourly_stats"][today][hour] = gd["hourly_stats"][today].get(hour, 0) + 1
+        # 每日首次发言：打卡登记 + 里程碑检测
+        if old_date != today:
+            gd.setdefault("daily_checkins", {}).setdefault(today, [])
+            if sid not in gd["daily_checkins"][today]:
+                gd["daily_checkins"][today].append(sid)
+            if streak in (7, 14, 30) and self.config.get("enabled"):
+                asyncio.create_task(self._announce_milestone(gid, sid, nick, streak))
 
         if warned and self._bot_self_id and self.config.get("ai_enabled") and self.config.get("ai_appeal"):
             msg = event.message_str or ""
@@ -293,6 +300,27 @@ class GroupActivityPlugin(Star):
             ok, comment = await self._ai_judge(nick, reason, days, event.unified_msg_origin)
             await event.send(event.plain_result(f"[AI 裁决] {nick} 的申诉{'通过' if ok else '被驳回'}！\n{comment}"))
         except Exception as e: logger.error(f"AI申诉失败: {e}")
+
+    # ==================== 打卡 ====================
+
+    @staticmethod
+    def _streak_title(streak):
+        if streak >= 30: return "👑 传奇守护者"
+        if streak >= 14: return "🥇 金牌驻场"
+        if streak >= 7:  return "🥈 银牌常客"
+        if streak >= 3:  return "🌿 活跃中"
+        return "🌱 新萌"
+
+    async def _announce_milestone(self, gid, sid, nick, streak):
+        """在群里广播连续活跃里程碑"""
+        titles = {7: "🥈 银牌常客", 14: "🥇 金牌驻场", 30: "👑 传奇守护者"}
+        try:
+            cl = await self._cli()
+            if cl:
+                await cl.api.call_action("send_group_msg", group_id=int(gid),
+                    message=f"🎉 [CQ:at,qq={sid}] 连续活跃 {streak} 天，荣获称号【{titles[streak]}】！继续保持哦~")
+        except Exception as e:
+            logger.warning(f"里程碑广播失败(群{gid}): {e}")
 
     # ==================== 定时检测 ====================
 
@@ -338,11 +366,13 @@ class GroupActivityPlugin(Star):
             await asyncio.sleep(60)  # 每分钟轮询一次，周报时间精确到分钟
 
     def _cleanup_old_stats(self):
-        """清理 60 天前的 daily_stats 和 hourly_stats"""
-        cutoff = (datetime.date.today() - datetime.timedelta(days=60)).isoformat()
+        """清理过期数据：daily_stats/hourly_stats 保留60天，daily_checkins 保留30天"""
+        cutoff60 = (datetime.date.today() - datetime.timedelta(days=60)).isoformat()
+        cutoff30 = (datetime.date.today() - datetime.timedelta(days=30)).isoformat()
         cleaned = False
         for gd in self.activity_data.get("groups", {}).values():
-            for key in ("daily_stats", "hourly_stats"):
+            for key, cutoff in (("daily_stats", cutoff60), ("hourly_stats", cutoff60),
+                                ("daily_checkins", cutoff30)):
                 bucket = gd.get(key, {})
                 old_keys = [k for k in bucket if k < cutoff]
                 for k in old_keys:
@@ -843,6 +873,30 @@ class GroupActivityPlugin(Star):
                 "peak_hour": f"{peak_h:02d}:00", "peak_val": hour_avgs[peak_h],
                 "total_msgs": sum(hour_totals)}, gid=gid))
         except Exception as e: logger.error(f"热力图渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
+
+    @filter.command("打卡榜")
+    async def cmd_checkin(self, event: AstrMessageEvent):
+        """今日打卡榜：按首次发言顺序展示成员连续打卡天数与称号"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        gd = self.activity_data.get("groups", {}).get(gid, {})
+        today = datetime.date.today().isoformat()
+        checkins = gd.get("daily_checkins", {}).get(today, [])
+        ms = gd.get("members", {})
+        rows = []
+        for i, uid in enumerate(checkins[:20], 1):
+            md = ms.get(uid, {})
+            rows.append({"rank": i, "qq": uid,
+                         "nick": md.get("nickname", uid),
+                         "streak": md.get("streak", 1),
+                         "title": self._streak_title(md.get("streak", 1))})
+        try:
+            yield event.image_result(await self._img(T.CHECKIN, {
+                "date": today, "rows": rows,
+                "total": len(checkins), "members_total": len(ms)
+            }, gid=gid))
+        except Exception as e:
+            logger.error(f"打卡榜渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
 
     @filter.command("手动检测")
     @filter.permission_type(filter.PermissionType.ADMIN)
