@@ -1,4 +1,4 @@
-"""群成员活跃度检测插件（AI 增强版 v2.1）
+"""群成员活跃度检测插件（AI 增强版 v2.2）
 
 Playwright 浏览器渲染高清图片 + LLM 大模型集成。
 """
@@ -51,7 +51,7 @@ WELCOME_TEMPLATES = {
 }
 
 
-@register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.1.0")
+@register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.2.0")
 class GroupActivityPlugin(Star):
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -71,7 +71,7 @@ class GroupActivityPlugin(Star):
         self._cache_ttl = 60          # 缓存有效期（秒）
         self._welcome_pending: set = set()  # (gid, uid) 等待欢迎（重新入群）
         self._task = asyncio.create_task(self._loop())
-        logger.info("群活跃检测插件 v2.1 已加载")
+        logger.info("群活跃检测插件 v2.2 已加载")
 
     # ==================== 数据 ====================
 
