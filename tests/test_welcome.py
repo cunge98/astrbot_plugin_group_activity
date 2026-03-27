@@ -272,8 +272,8 @@ class TestWelcomeAI:
         assert sent
         assert "小明" in sent[0]
 
-    async def test_message_uses_reply_cq_when_msg_id_given(self, tmp_path):
-        """Sent message uses [CQ:reply] when a message_id is provided."""
+    async def test_message_contains_at_mention(self, tmp_path):
+        """Sent message always starts with [CQ:at,qq=<sid>]."""
         cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
         plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
         sent = []
@@ -287,12 +287,12 @@ class TestWelcomeAI:
         cl.api.call_action = _call_action
         plugin._bot_client = cl
 
-        await plugin._ai_welcome("9004", "u99", "小明", msg_id="42")
+        await plugin._ai_welcome("9004", "u99", "小明")
         assert sent
-        assert "[CQ:reply,id=42]" in sent[0]
+        assert "[CQ:at,qq=u99]" in sent[0]
 
-    async def test_message_no_reply_when_no_msg_id(self, tmp_path):
-        """No [CQ:reply] prefix when msg_id is None."""
+    async def test_nick_is_qq_number_uses_new_member_label(self, tmp_path):
+        """When nick equals sid (no group card set), display as 新成员 to avoid QQ number in text."""
         cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
         plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
         sent = []
@@ -306,10 +306,10 @@ class TestWelcomeAI:
         cl.api.call_action = _call_action
         plugin._bot_client = cl
 
-        await plugin._ai_welcome("9005", "u99", "小明", msg_id=None)
+        await plugin._ai_welcome("9005", "3154364875", "3154364875")
         assert sent
-        assert "[CQ:reply" not in sent[0]
-        assert "小明" in sent[0]
+        assert "新成员" in sent[0]
+        assert "3154364875" not in sent[0].replace("[CQ:at,qq=3154364875]", "")
 
     async def test_ai_prompt_includes_msg_text_and_group_name(self, tmp_path):
         """AI prompt should contain the member's first message and the group name."""
