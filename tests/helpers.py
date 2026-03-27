@@ -34,6 +34,9 @@ def make_config(**overrides) -> dict:
         "auto_weekly_hour": 20,
         "theme": "清新蓝",
         "kick_message": "成员 {nickname} 因超过 {days} 天未发言已被移出群聊。",
+        "ai_welcome": False,
+        "welcome_style": "AI生成",
+        "welcome_message": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
     }
     defaults.update(overrides)
     return defaults

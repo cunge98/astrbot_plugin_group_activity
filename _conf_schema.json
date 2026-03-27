@@ -118,5 +118,24 @@
     "type": "string",
     "default": "20:00",
     "hint": "格式 HH:MM（24小时制），如 20:30 表示晚上8点30分"
+  },
+  "ai_welcome": {
+    "description": "AI 入群欢迎",
+    "type": "bool",
+    "default": false,
+    "hint": "新成员首次发言时自动发送欢迎语 + 破冰问题"
+  },
+  "welcome_style": {
+    "description": "欢迎语风格",
+    "type": "string",
+    "default": "AI生成",
+    "options": ["AI生成", "活力热血", "古风雅致", "简洁清爽", "自定义"],
+    "hint": "AI生成：根据当前AI人设动态生成；其余为固定模板；自定义：使用下方文本框内容"
+  },
+  "welcome_message": {
+    "description": "自定义欢迎语模板",
+    "type": "text",
+    "default": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
+    "hint": "welcome_style 选「自定义」时生效。支持变量：{nickname}"
   }
 }
