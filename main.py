@@ -297,23 +297,29 @@ class GroupActivityPlugin(Star):
         logger.info("群活跃检测定时任务已启动")
         last_weekly_date = ""
         last_cleanup = ""
+        last_check_ts = 0.0   # 上次执行活跃检测的时间戳
         while True:
             try:
                 # 刷盘：如果有脏数据则立即写入
                 if self._dirty:
                     self._force_save()
 
+                today = datetime.date.today().isoformat()
+
+                # 活跃检测：按 check_interval_minutes 间隔执行，不影响周报精度
                 if self.config.get("enabled"):
-                    await self._check_all()
+                    interval_s = max(self.config.get("check_interval_minutes", 60), 1) * 60
+                    if time.time() - last_check_ts >= interval_s:
+                        await self._check_all()
+                        last_check_ts = time.time()
 
                 # 每天清理一次 60 天前的 daily_stats
-                today = datetime.date.today().isoformat()
                 if last_cleanup != today:
                     self._cleanup_old_stats()
                     last_cleanup = today
 
-                # 自动周报：只要当天还没发过且已过目标时间，即触发
-                if (self.config.get("auto_weekly") and self.config.get("ai_enabled")
+                # 自动周报：不依赖 ai_enabled，AI 短评不可用时自动降级为空
+                if (self.config.get("auto_weekly")
                         and self._is_weekly_day()
                         and last_weekly_date != today):
                     wh, wm = self._weekly_time()
@@ -325,7 +331,7 @@ class GroupActivityPlugin(Star):
 
             except asyncio.CancelledError: break
             except Exception as e: logger.error(f"定时任务出错: {e}")
-            await asyncio.sleep(max(self.config.get("check_interval_minutes", 60), 1) * 60)
+            await asyncio.sleep(60)  # 每分钟轮询一次，周报时间精确到分钟
 
     def _cleanup_old_stats(self):
         """清理 60 天前的 daily_stats"""
