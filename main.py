@@ -343,26 +343,17 @@ class GroupActivityPlugin(Star):
                 asyncio.create_task(self._appeal(event, gid, sid, nick, msg, warned))
         if warned: logger.info(f"群{gid} {nick}({sid}) 响应警告")
 
-        # 每日一问 AI 互动：引用了今日话题消息则 await AI 生成并 yield 回复，
-        # 以消耗该事件、阻断 AstrBot 默认 AI 的重复响应
+        # 每日一问 AI 互动：引用了今日话题消息，通过 bot client 发送 @回复（支持 CQ 码）
+        # 用 create_task 异步发送，on_msg 本身不 yield，避免 plain_result 把 CQ 码变成字面文字
         if self.config.get("ai_enabled") and not _is_new:
             today_topic = gd.get("daily_topics", {}).get(today)
             if today_topic and today_topic.get("msg_id"):
                 replied_mid = self._get_reply_id(event)
                 if replied_mid and str(replied_mid) == str(today_topic["msg_id"]):
-                    clean = re.sub(r'\[CQ:[^\]]+\]', '', event.message_str or '').strip()
-                    if clean:
-                        r = await self._ai(
-                            f"每日话题问题是「{today_topic['topic']}」，"
-                            f"群友「{nick}」的回答是：「{clean[:150]}」。"
-                            f"请用当前人设对ta的回答做出简短有趣的回应（50字以内），"
-                            f"可以赞同、调侃或追问，不要重复问题原文，不要加@前缀。",
-                            self._persona(), event.unified_msg_origin
-                        )
-                        self._save()
-                        if r:
-                            yield event.plain_result(f"[CQ:at,qq={sid}] {r.strip()[:200]}")
-                        return  # 事件已处理，阻断默认 AI
+                    asyncio.create_task(self._ai_topic_reply(
+                        gid, sid, nick, today_topic["topic"],
+                        event.message_str or "", event.unified_msg_origin,
+                    ))
 
         self._save()
 

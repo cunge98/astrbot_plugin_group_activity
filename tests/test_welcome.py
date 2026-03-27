@@ -41,7 +41,7 @@ class TestWelcomeTrigger:
         async def _noop(*a, **kw): pass
 
         with patch("asyncio.create_task", side_effect=lambda c, **kw: created.append(c) or MagicMock()):
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
 
         # Close any lingering coroutines
         for c in created:
@@ -60,13 +60,13 @@ class TestWelcomeTrigger:
 
         # First message — member gets registered
         with patch("asyncio.create_task", return_value=MagicMock()) as ct:
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
             first_call_count = ct.call_count
 
         # Second message — member already exists
         welcome_tasks_second = []
         with patch("asyncio.create_task", side_effect=lambda c, **kw: welcome_tasks_second.append(c) or MagicMock()):
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
 
         for c in welcome_tasks_second:
             if hasattr(c, "close"):
@@ -90,7 +90,7 @@ class TestWelcomeTrigger:
         event = make_mock_event(group_id="7004", sender_id="u1", sender_name="Alice")
         created = []
         with patch("asyncio.create_task", side_effect=lambda c, **kw: created.append(c) or MagicMock()):
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
         for c in created:
             if hasattr(c, "close"):
                 c.close()
@@ -111,10 +111,10 @@ class TestWelcomeTrigger:
         plugin._welcome_pending.add(("7005", "u1"))
         event = make_mock_event(group_id="7005", sender_id="u1", sender_name="Alice")
         with patch("asyncio.create_task", return_value=MagicMock()):
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
         created = []
         with patch("asyncio.create_task", side_effect=lambda c, **kw: created.append(c) or MagicMock()):
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
         for c in created:
             if hasattr(c, "close"):
                 c.close()
@@ -129,7 +129,7 @@ class TestWelcomeTrigger:
 
         created = []
         with patch("asyncio.create_task", side_effect=lambda c, **kw: created.append(c) or MagicMock()):
-            async for _ in plugin.on_msg(event): pass
+            await plugin.on_msg(event)
 
         for c in created:
             if hasattr(c, "close"):
