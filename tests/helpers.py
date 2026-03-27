@@ -83,13 +83,14 @@ def make_plugin(config=None, tmp_path=None):
 
 
 def make_mock_event(group_id, sender_id, sender_name="", message_str="",
-                    self_id="99999"):
+                    self_id="99999", message_id="100"):
     """Return a minimal AstrMessageEvent mock for on_msg tests."""
     event = MagicMock()
     event.message_obj.group_id = group_id
     event.message_obj.self_id = self_id
     event.message_obj.message = []
     event.message_obj.group_name = ""
+    event.message_obj.message_id = message_id
     event.get_sender_id.return_value = str(sender_id)
     event.get_sender_name.return_value = sender_name
     event.message_str = message_str

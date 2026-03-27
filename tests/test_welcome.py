@@ -272,11 +272,10 @@ class TestWelcomeAI:
         assert sent
         assert "小明" in sent[0]
 
-    async def test_message_contains_at_mention(self, tmp_path):
-        """Sent message always contains [CQ:at,qq=<sid>]."""
+    async def test_message_uses_reply_cq_when_msg_id_given(self, tmp_path):
+        """Sent message uses [CQ:reply] when a message_id is provided."""
         cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
         plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
-
         sent = []
 
         async def _call_action(action, **kwargs):
@@ -288,6 +287,48 @@ class TestWelcomeAI:
         cl.api.call_action = _call_action
         plugin._bot_client = cl
 
-        await plugin._ai_welcome("9004", "u99", "小明")
+        await plugin._ai_welcome("9004", "u99", "小明", msg_id="42")
         assert sent
-        assert "[CQ:at,qq=u99]" in sent[0]
+        assert "[CQ:reply,id=42]" in sent[0]
+
+    async def test_message_no_reply_when_no_msg_id(self, tmp_path):
+        """No [CQ:reply] prefix when msg_id is None."""
+        cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        sent = []
+
+        async def _call_action(action, **kwargs):
+            if action == "send_group_msg":
+                sent.append(kwargs.get("message", ""))
+            return None
+
+        cl = MagicMock()
+        cl.api.call_action = _call_action
+        plugin._bot_client = cl
+
+        await plugin._ai_welcome("9005", "u99", "小明", msg_id=None)
+        assert sent
+        assert "[CQ:reply" not in sent[0]
+        assert "小明" in sent[0]
+
+    async def test_ai_prompt_includes_msg_text_and_group_name(self, tmp_path):
+        """AI prompt should contain the member's first message and the group name."""
+        cfg = make_config(ai_welcome=True, welcome_style="AI生成", ai_enabled=True)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        prompts_seen = []
+
+        async def fake_llm_generate(chat_provider_id, prompt):
+            prompts_seen.append(prompt)
+            return MagicMock(completion_text="欢迎！")
+
+        plugin.context.llm_generate = fake_llm_generate
+        plugin.context.get_current_chat_provider_id = AsyncMock(return_value="test_provider")
+        plugin._bot_client = MagicMock()
+        plugin._bot_client.api.call_action = AsyncMock(return_value=None)
+
+        await plugin._ai_welcome("9010", "u1", "小明", umo="test_origin",
+                                 msg_text="大家好！", group_name="快乐群")
+        assert prompts_seen
+        full_prompt = prompts_seen[0]
+        assert "大家好！" in full_prompt
+        assert "快乐群" in full_prompt
