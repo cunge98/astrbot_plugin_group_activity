@@ -171,3 +171,147 @@ class TestCmdDailyTopic:
             pass
 
         assert captured.get("is_ai") is True
+
+
+# ── auto-send scheduling tests ───────────────────────────────────────────────
+
+class TestAutoTopicSchedule:
+
+    def test_is_topic_day_every_day(self, plugin):
+        # "每天" should always return True
+        plugin.config["auto_topic_day"] = "每天"
+        assert plugin._is_topic_day() is True
+
+    def test_is_topic_day_specific_day_match(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        # Find today's weekday name
+        day_names = ["周一","周二","周三","周四","周五","周六","周日"]
+        today_name = day_names[datetime.date.today().weekday()]
+        plugin.config["auto_topic_day"] = today_name
+        assert plugin._is_topic_day() is True
+
+    def test_is_topic_day_specific_day_no_match(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        day_names = ["周一","周二","周三","周四","周五","周六","周日"]
+        # Pick a day that is NOT today
+        today_idx = datetime.date.today().weekday()
+        other_day = day_names[(today_idx + 1) % 7]
+        plugin.config["auto_topic_day"] = other_day
+        assert plugin._is_topic_day() is False
+
+    def test_topic_time_parses_hhmm(self, plugin):
+        plugin.config["auto_topic_time"] = "08:30"
+        assert plugin._topic_time() == (8, 30)
+
+    def test_topic_time_default_fallback(self, plugin):
+        plugin.config["auto_topic_time"] = ""
+        assert plugin._topic_time() == (9, 0)
+
+    def test_topic_time_leading_zero(self, plugin):
+        plugin.config["auto_topic_time"] = "09:05"
+        assert plugin._topic_time() == (9, 5)
+
+
+# ── _send_auto_topic tests ───────────────────────────────────────────────────
+
+class TestSendAutoTopic:
+
+    async def test_send_stores_msg_id_in_cache(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        from tests.helpers import make_mock_client
+        cl = make_mock_client()
+
+        async def _call_action(action, **kwargs):
+            if action == "get_group_list":
+                return [{"group_id": 1234}]
+            if action == "send_group_msg":
+                return {"message_id": 9001}
+            return None
+
+        cl.api.call_action = _call_action
+        plugin._bot_client = cl
+        plugin._img = AsyncMock(return_value=b"fake_img")
+
+        await plugin._send_auto_topic()
+
+        today = datetime.date.today().isoformat()
+        cached = plugin.activity_data.get("groups", {}).get("1234", {}).get("daily_topics", {}).get(today)
+        assert cached is not None
+        assert cached["msg_id"] == "9001"
+        assert "topic" in cached
+
+    async def test_send_skips_when_no_client(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        plugin._bot_client = None
+        plugin.context.get_platform = MagicMock(return_value=None)
+        # Should not raise
+        await plugin._send_auto_topic()
+
+
+# ── reply detection & AI response tests ─────────────────────────────────────
+
+class TestTopicReplyDetection:
+
+    def _make_reply_event(self, group_id, sender_id, reply_id, text="好问题"):
+        from tests.helpers import make_mock_event
+        event = make_mock_event(group_id=group_id, sender_id=sender_id,
+                                message_str=f"[CQ:reply,id={reply_id}] {text}")
+        # Also put a dict-style segment in message list
+        event.message_obj.message = [
+            {"type": "reply", "data": {"id": str(reply_id)}},
+            {"type": "text", "data": {"text": text}},
+        ]
+        return event
+
+    def test_get_reply_id_from_dict_segment(self, plugin):
+        event = self._make_reply_event("1", "u1", 9001)
+        assert plugin._get_reply_id(event) == "9001"
+
+    def test_get_reply_id_from_cq_code_fallback(self, plugin):
+        from tests.helpers import make_mock_event
+        event = make_mock_event(group_id="1", sender_id="u1",
+                                message_str="[CQ:reply,id=42] 我觉得...")
+        event.message_obj.message = []
+        assert plugin._get_reply_id(event) == "42"
+
+    def test_get_reply_id_none_when_no_reply(self, plugin):
+        from tests.helpers import make_mock_event
+        event = make_mock_event(group_id="1", sender_id="u1", message_str="普通消息")
+        event.message_obj.message = []
+        assert plugin._get_reply_id(event) is None
+
+    async def test_ai_topic_reply_sends_at_mention(self, tmp_path):
+        cfg = make_config(ai_enabled=True, ai_provider="p")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._ai = AsyncMock(return_value="很有趣的想法！")
+        sent_msgs = []
+
+        async def fake_call(action, **kwargs):
+            sent_msgs.append((action, kwargs))
+            return {"message_id": 1}
+
+        from unittest.mock import MagicMock
+        cl = MagicMock()
+        cl.api.call_action = fake_call
+        plugin._bot_client = cl
+
+        await plugin._ai_topic_reply("1234", "u99", "Alice", "如果你有超能力？", "飞行！", None)
+
+        assert any(a == "send_group_msg" for a, _ in sent_msgs)
+        msg_text = sent_msgs[0][1].get("message", "")
+        assert "[CQ:at,qq=u99]" in msg_text
+
+    async def test_ai_topic_reply_skips_empty_message(self, tmp_path):
+        cfg = make_config(ai_enabled=True, ai_provider="p")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._ai = AsyncMock(return_value="回复")
+        sent_msgs = []
+        from unittest.mock import MagicMock
+        cl = MagicMock()
+        async def fake_call(action, **kwargs): sent_msgs.append(action)
+        cl.api.call_action = fake_call
+        plugin._bot_client = cl
+
+        # CQ码会被清除，只剩空字符串
+        await plugin._ai_topic_reply("1234", "u99", "Alice", "话题", "[CQ:image,file=x]", None)
+        assert not sent_msgs  # 无文字内容，不应发送

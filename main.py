@@ -342,6 +342,18 @@ class GroupActivityPlugin(Star):
             if at_bot and msg.strip():
                 asyncio.create_task(self._appeal(event, gid, sid, nick, msg, warned))
         if warned: logger.info(f"群{gid} {nick}({sid}) 响应警告")
+
+        # 每日一问 AI 互动：引用了今日话题消息则触发 AI 回复
+        if self.config.get("ai_enabled") and not _is_new:
+            today_topic = gd.get("daily_topics", {}).get(today)
+            if today_topic and today_topic.get("msg_id"):
+                replied_mid = self._get_reply_id(event)
+                if replied_mid and str(replied_mid) == str(today_topic["msg_id"]):
+                    asyncio.create_task(self._ai_topic_reply(
+                        gid, sid, nick, today_topic["topic"],
+                        event.message_str or "", event.unified_msg_origin,
+                    ))
+
         self._save()
 
     async def _appeal(self, event, gid, sid, nick, reason, wa):
@@ -433,6 +445,7 @@ class GroupActivityPlugin(Star):
         await asyncio.sleep(30)
         logger.info("群活跃检测定时任务已启动")
         last_weekly_date = ""
+        last_topic_date = ""
         last_cleanup = ""
         last_check_ts = 0.0   # 上次执行活跃检测的时间戳
         while True:
@@ -465,6 +478,17 @@ class GroupActivityPlugin(Star):
                     if past_target:
                         await self._send_auto_weekly()
                         last_weekly_date = today
+
+                # 每日一问自动发送
+                if (self.config.get("auto_topic")
+                        and self._is_topic_day()
+                        and last_topic_date != today):
+                    th, tm = self._topic_time()
+                    now_dt = datetime.datetime.now()
+                    past_target = now_dt.hour > th or (now_dt.hour == th and now_dt.minute >= tm)
+                    if past_target:
+                        await self._send_auto_topic()
+                        last_topic_date = today
 
             except asyncio.CancelledError: break
             except Exception as e: logger.error(f"定时任务出错: {e}")
@@ -502,6 +526,130 @@ class GroupActivityPlugin(Star):
         # 兼容旧配置
         h = self.config.get("auto_weekly_hour", 20)
         return (int(h), 0) if h is not None else (20, 0)
+
+    def _is_topic_day(self):
+        day = self.config.get("auto_topic_day", "每天")
+        if day == "每天": return True
+        day_map = {"周一":0,"周二":1,"周三":2,"周四":3,"周五":4,"周六":5,"周日":6}
+        return datetime.date.today().weekday() == day_map.get(day, 0)
+
+    def _topic_time(self):
+        """解析每日一问发送时间，返回 (hour, minute)。"""
+        t = self.config.get("auto_topic_time", "09:00")
+        if t and ":" in str(t):
+            try:
+                parts = str(t).split(":")
+                return int(parts[0]), int(parts[1])
+            except: pass
+        return 9, 0
+
+    async def _send_auto_topic(self):
+        """定时自动向所有监控群发送每日一问，并记录消息 ID 以便 AI 回复。"""
+        cl = await self._cli()
+        if not cl:
+            logger.warning("每日一问自动发送: 未获取到 bot 客户端，跳过")
+            return
+        targets = await self._target_groups(cl)
+        if not targets:
+            logger.info("每日一问自动发送: 无监控群，跳过")
+            return
+        today = datetime.date.today().isoformat()
+        for gid in targets:
+            gd = self.activity_data.setdefault("groups", {}).setdefault(gid, {})
+            group_name = gd.get("group_name", "")
+            topic, is_ai = await self._gen_topic(group_name)
+            img_result = None
+            try:
+                img_result = await asyncio.wait_for(
+                    self._img(T.TOPIC, {"topic": topic, "date": today,
+                                        "group_name": group_name, "is_ai": is_ai}, gid=gid),
+                    timeout=60
+                )
+            except Exception as e:
+                logger.error(f"每日一问渲染失败(群{gid}): {e}")
+
+            sent_msg_id = None
+            if img_result:
+                sent_msg_id = await self._send_topic_img(cl, gid, img_result, topic)
+            elif not img_result:
+                try:
+                    resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                    message=f"💬 今日一问\n\n{topic}")
+                    if isinstance(resp, dict):
+                        sent_msg_id = resp.get("message_id")
+                except Exception as e:
+                    logger.error(f"每日一问文字降级发送失败(群{gid}): {e}")
+
+            gd.setdefault("daily_topics", {})[today] = {
+                "topic": topic, "is_ai": is_ai,
+                "msg_id": str(sent_msg_id) if sent_msg_id is not None else None,
+            }
+            self._save()
+            logger.info(f"每日一问已发送到群{gid}，msg_id={sent_msg_id}")
+
+    async def _send_topic_img(self, cl, gid, img_result, fallback_text):
+        """发送话题图片，返回成功发送的 message_id 或 None。"""
+        # URL 形式
+        if isinstance(img_result, str):
+            try:
+                resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                message=[{"type": "image", "data": {"file": img_result}}])
+                return resp.get("message_id") if isinstance(resp, dict) else None
+            except Exception as e:
+                logger.warning(f"每日一问图片(URL)发送失败(群{gid}): {e}")
+
+        # bytes 形式：base64 → 文件 → CQ 码 三级降级
+        if isinstance(img_result, bytes):
+            for attempt, mk_msg in enumerate([
+                lambda b: [{"type": "image", "data": {"file": f"base64://{base64.b64encode(b).decode()}"}}],
+                lambda b: f"[CQ:image,file=base64://{base64.b64encode(b).decode()}]",
+            ]):
+                try:
+                    resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                    message=mk_msg(img_result))
+                    return resp.get("message_id") if isinstance(resp, dict) else None
+                except Exception as e:
+                    logger.warning(f"每日一问图片发送失败(attempt {attempt}, 群{gid}): {e}")
+        return None
+
+    @staticmethod
+    def _get_reply_id(event):
+        """从消息事件中提取被引用的消息 ID，无引用则返回 None。"""
+        import re
+        for seg in (event.message_obj.message or []):
+            # dict 形式（原始 OneBot 段）
+            if isinstance(seg, dict) and seg.get("type") == "reply":
+                mid = seg.get("data", {}).get("id")
+                if mid: return str(mid)
+            # 对象形式（AstrBot 封装）
+            t = getattr(seg, "type", None) or getattr(type(seg), "__name__", "")
+            if "reply" in str(t).lower():
+                mid = getattr(seg, "id", None) or getattr(seg, "message_id", None)
+                if mid: return str(mid)
+        # 兜底：解析 message_str 中的 CQ 码
+        m = re.search(r'\[CQ:reply,id=(-?\d+)\]', event.message_str or "")
+        return m.group(1) if m else None
+
+    async def _ai_topic_reply(self, gid, sid, nick, topic, user_msg, umo=None):
+        """对引用每日一问并作答的成员进行 AI @ 回复。"""
+        import re
+        # 去除消息中的 CQ 码，只保留文字部分
+        clean = re.sub(r'\[CQ:[^\]]+\]', '', user_msg).strip()
+        if not clean: return
+        r = await self._ai(
+            f"每日话题问题是「{topic}」，群友「{nick}」的回答是：「{clean[:150]}」。"
+            f"请用当前人设对ta的回答做出简短有趣的回应（50字以内），"
+            f"可以赞同、调侃或追问，不要重复问题原文，不要加@前缀。",
+            self._persona(), umo
+        )
+        if not r: return
+        try:
+            cl = await self._cli()
+            if cl:
+                await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                         message=f"[CQ:at,qq={sid}] {r.strip()[:200]}")
+        except Exception as e:
+            logger.warning(f"每日一问AI回复失败(群{gid}): {e}")
 
     async def _target_groups(self, cl):
         """获取需要监控的群列表"""

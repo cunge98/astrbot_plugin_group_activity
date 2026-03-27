@@ -137,5 +137,24 @@
     "type": "text",
     "default": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
     "hint": "welcome_style 选「自定义」时生效。支持变量：{nickname}"
+  },
+  "auto_topic": {
+    "description": "每日一问自动发送",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后按设定时间自动向监控群发送每日一问话题"
+  },
+  "auto_topic_day": {
+    "description": "每日一问发送日",
+    "type": "string",
+    "default": "每天",
+    "options": ["每天", "周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+    "hint": "每天 = 每日发送；选择具体星期几则仅该天发送"
+  },
+  "auto_topic_time": {
+    "description": "每日一问发送时间",
+    "type": "string",
+    "default": "09:00",
+    "hint": "格式 HH:MM（24小时制），如 08:30 表示早上8点30分"
   }
 }
