@@ -17,7 +17,7 @@ class TestHourlyStatsCollection:
     async def test_on_msg_creates_hourly_stats(self, plugin):
         """First message in a group seeds hourly_stats for the current hour."""
         event = make_mock_event(group_id="1001", sender_id="u1")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         hs = plugin.activity_data["groups"]["1001"].get("hourly_stats", {})
@@ -27,9 +27,9 @@ class TestHourlyStatsCollection:
     async def test_on_msg_increments_hourly_count(self, plugin):
         """Multiple messages in the same hour accumulate correctly."""
         event = make_mock_event(group_id="1002", sender_id="u1")
-        await plugin.on_msg(event)
-        await plugin.on_msg(event)
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
+        async for _ in plugin.on_msg(event): pass
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         hour = str(datetime.datetime.now().hour)
@@ -39,7 +39,7 @@ class TestHourlyStatsCollection:
     async def test_hourly_stats_independent_of_daily_stats(self, plugin):
         """hourly_stats and daily_stats are updated independently."""
         event = make_mock_event(group_id="1003", sender_id="u1")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         gd = plugin.activity_data["groups"]["1003"]
@@ -51,7 +51,7 @@ class TestHourlyStatsCollection:
         today = datetime.date.today().isoformat()
         hour = str(datetime.datetime.now().hour)
         for uid in ("u1", "u2", "u3"):
-            await plugin.on_msg(make_mock_event(group_id="1004", sender_id=uid))
+            async for _ in plugin.on_msg(make_mock_event(group_id="1004", sender_id=uid)): pass
 
         count = plugin.activity_data["groups"]["1004"]["hourly_stats"][today][hour]
         assert count == 3

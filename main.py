@@ -3,7 +3,7 @@
 Playwright 浏览器渲染高清图片 + LLM 大模型集成。
 """
 
-import json, time, asyncio, random, datetime, base64
+import json, time, asyncio, random, datetime, base64, re
 from pathlib import Path
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
@@ -343,16 +343,26 @@ class GroupActivityPlugin(Star):
                 asyncio.create_task(self._appeal(event, gid, sid, nick, msg, warned))
         if warned: logger.info(f"群{gid} {nick}({sid}) 响应警告")
 
-        # 每日一问 AI 互动：引用了今日话题消息则触发 AI 回复
+        # 每日一问 AI 互动：引用了今日话题消息则 await AI 生成并 yield 回复，
+        # 以消耗该事件、阻断 AstrBot 默认 AI 的重复响应
         if self.config.get("ai_enabled") and not _is_new:
             today_topic = gd.get("daily_topics", {}).get(today)
             if today_topic and today_topic.get("msg_id"):
                 replied_mid = self._get_reply_id(event)
                 if replied_mid and str(replied_mid) == str(today_topic["msg_id"]):
-                    asyncio.create_task(self._ai_topic_reply(
-                        gid, sid, nick, today_topic["topic"],
-                        event.message_str or "", event.unified_msg_origin,
-                    ))
+                    clean = re.sub(r'\[CQ:[^\]]+\]', '', event.message_str or '').strip()
+                    if clean:
+                        r = await self._ai(
+                            f"每日话题问题是「{today_topic['topic']}」，"
+                            f"群友「{nick}」的回答是：「{clean[:150]}」。"
+                            f"请用当前人设对ta的回答做出简短有趣的回应（50字以内），"
+                            f"可以赞同、调侃或追问，不要重复问题原文，不要加@前缀。",
+                            self._persona(), event.unified_msg_origin
+                        )
+                        self._save()
+                        if r:
+                            yield event.plain_result(f"[CQ:at,qq={sid}] {r.strip()[:200]}")
+                        return  # 事件已处理，阻断默认 AI
 
         self._save()
 
@@ -445,7 +455,6 @@ class GroupActivityPlugin(Star):
         await asyncio.sleep(30)
         logger.info("群活跃检测定时任务已启动")
         last_weekly_date = ""
-        last_topic_date = ""
         last_cleanup = ""
         last_check_ts = 0.0   # 上次执行活跃检测的时间戳
         while True:
@@ -479,16 +488,13 @@ class GroupActivityPlugin(Star):
                         await self._send_auto_weekly()
                         last_weekly_date = today
 
-                # 每日一问自动发送
-                if (self.config.get("auto_topic")
-                        and self._is_topic_day()
-                        and last_topic_date != today):
+                # 每日一问自动发送（幂等由 _send_auto_topic 内部保证，无需 last_topic_date）
+                # 这样改变发送时间后，只要今日尚未发送，新时间到达即可正确触发
+                if self.config.get("auto_topic") and self._is_topic_day():
                     th, tm = self._topic_time()
                     now_dt = datetime.datetime.now()
-                    past_target = now_dt.hour > th or (now_dt.hour == th and now_dt.minute >= tm)
-                    if past_target:
+                    if now_dt.hour > th or (now_dt.hour == th and now_dt.minute >= tm):
                         await self._send_auto_topic()
-                        last_topic_date = today
 
             except asyncio.CancelledError: break
             except Exception as e: logger.error(f"定时任务出错: {e}")
@@ -556,6 +562,11 @@ class GroupActivityPlugin(Star):
         today = datetime.date.today().isoformat()
         for gid in targets:
             gd = self.activity_data.setdefault("groups", {}).setdefault(gid, {})
+            # 幂等：今日已发送（有 msg_id）则跳过，防止插件重启或配置变更导致重复发送
+            existing = gd.get("daily_topics", {}).get(today)
+            if existing and existing.get("msg_id"):
+                logger.debug(f"每日一问今日已发送，跳过群{gid}")
+                continue
             group_name = gd.get("group_name", "")
             topic, is_ai = await self._gen_topic(group_name)
             img_result = None
@@ -615,7 +626,6 @@ class GroupActivityPlugin(Star):
     @staticmethod
     def _get_reply_id(event):
         """从消息事件中提取被引用的消息 ID，无引用则返回 None。"""
-        import re
         for seg in (event.message_obj.message or []):
             # dict 形式（原始 OneBot 段）
             if isinstance(seg, dict) and seg.get("type") == "reply":
@@ -632,7 +642,6 @@ class GroupActivityPlugin(Star):
 
     async def _ai_topic_reply(self, gid, sid, nick, topic, user_msg, umo=None):
         """对引用每日一问并作答的成员进行 AI @ 回复。"""
-        import re
         # 去除消息中的 CQ 码，只保留文字部分
         clean = re.sub(r'\[CQ:[^\]]+\]', '', user_msg).strip()
         if not clean: return

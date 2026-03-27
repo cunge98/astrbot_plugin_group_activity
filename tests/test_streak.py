@@ -33,7 +33,7 @@ class TestStreak:
         _seed_member(plugin, "12345", "1001", streak=5, last_active_date=today)
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["1001"]["streak"] == 5
 
@@ -43,7 +43,7 @@ class TestStreak:
         _seed_member(plugin, "12345", "1001", streak=3, last_active_date=yesterday)
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["1001"]["streak"] == 4
 
@@ -53,7 +53,7 @@ class TestStreak:
         _seed_member(plugin, "12345", "1001", streak=10, last_active_date=two_days_ago)
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["1001"]["streak"] == 1
 
@@ -63,7 +63,7 @@ class TestStreak:
         _seed_member(plugin, "12345", "1001", streak=99, last_active_date=old_date)
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["1001"]["streak"] == 1
 
@@ -72,7 +72,7 @@ class TestStreak:
         plugin.activity_data["groups"]["12345"] = {"members": {}, "daily_stats": {}}
 
         event = make_mock_event("12345", "2001", "NewUser")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["2001"]["streak"] == 1
 
@@ -88,7 +88,7 @@ class TestWarnedAtClear:
                      last_active_date="", warned_at=now - 3600)
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         member = plugin.activity_data["groups"]["12345"]["members"]["1001"]
         assert member["warned_at"] is None
@@ -99,7 +99,7 @@ class TestWarnedAtClear:
 
         before = int(time.time())
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
         after = int(time.time())
 
         la = plugin.activity_data["groups"]["12345"]["members"]["1001"]["last_active"]
@@ -110,7 +110,7 @@ class TestWarnedAtClear:
         _seed_member(plugin, "12345", "1001", streak=0, last_active_date="1970-01-01")
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         member = plugin.activity_data["groups"]["12345"]["members"]["1001"]
@@ -126,8 +126,8 @@ class TestDailyStats:
         plugin.activity_data["groups"]["12345"] = {"members": {}, "daily_stats": {}}
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         count = plugin.activity_data["groups"]["12345"]["daily_stats"][today]
@@ -138,7 +138,7 @@ class TestDailyStats:
         assert "99999" not in plugin.activity_data["groups"]
 
         event = make_mock_event("99999", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert "99999" in plugin.activity_data["groups"]
         assert "1001" in plugin.activity_data["groups"]["99999"]["members"]
@@ -150,7 +150,7 @@ class TestDailyStats:
         plugin.activity_data["groups"]["12345"]["members"]["1001"]["join_time"] = original_join
 
         event = make_mock_event("12345", "1001", "User1001")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["1001"]["join_time"] == original_join
 
@@ -160,6 +160,6 @@ class TestDailyStats:
         plugin.activity_data["groups"]["12345"]["members"]["1001"]["nickname"] = "OldName"
 
         event = make_mock_event("12345", "1001", "NewName")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         assert plugin.activity_data["groups"]["12345"]["members"]["1001"]["nickname"] == "NewName"

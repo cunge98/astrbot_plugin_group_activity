@@ -315,3 +315,56 @@ class TestTopicReplyDetection:
         # CQ码会被清除，只剩空字符串
         await plugin._ai_topic_reply("1234", "u99", "Alice", "话题", "[CQ:image,file=x]", None)
         assert not sent_msgs  # 无文字内容，不应发送
+
+
+# ── idempotency (bug #2 fix) ─────────────────────────────────────────────────
+
+class TestSendAutoTopicIdempotency:
+
+    async def test_no_double_send_when_msg_id_already_cached(self, tmp_path):
+        """_send_auto_topic must skip groups that already have a msg_id today."""
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        today = datetime.date.today().isoformat()
+        # Pre-populate cache as if already sent
+        plugin.activity_data["groups"]["2222"] = {
+            "daily_topics": {today: {"topic": "旧话题", "is_ai": False, "msg_id": "8888"}}
+        }
+        sent = []
+
+        async def _call_action(action, **kwargs):
+            sent.append(action)
+            if action == "get_group_list":
+                return [{"group_id": 2222}]
+            return {"message_id": 9999}
+
+        from unittest.mock import MagicMock
+        cl = MagicMock()
+        cl.api.call_action = _call_action
+        plugin._bot_client = cl
+        plugin._img = AsyncMock(return_value=b"fake")
+
+        await plugin._send_auto_topic()
+
+        # send_group_msg must NOT have been called
+        assert "send_group_msg" not in sent
+
+    async def test_sends_when_no_cache_for_today(self, tmp_path):
+        """_send_auto_topic must send when today has no cached msg_id."""
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        sent = []
+
+        async def _call_action(action, **kwargs):
+            sent.append(action)
+            if action == "get_group_list":
+                return [{"group_id": 3333}]
+            return {"message_id": 7777}
+
+        from unittest.mock import MagicMock
+        cl = MagicMock()
+        cl.api.call_action = _call_action
+        plugin._bot_client = cl
+        plugin._img = AsyncMock(return_value=b"fake")
+
+        await plugin._send_auto_topic()
+
+        assert "send_group_msg" in sent

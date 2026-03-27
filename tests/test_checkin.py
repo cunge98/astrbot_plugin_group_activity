@@ -43,7 +43,7 @@ class TestCheckinCollection:
     async def test_first_message_registers_checkin(self, plugin):
         """First message of the day adds user to daily_checkins."""
         event = make_mock_event(group_id="5001", sender_id="u1")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         checkins = plugin.activity_data["groups"]["5001"]["daily_checkins"][today]
@@ -52,9 +52,9 @@ class TestCheckinCollection:
     async def test_second_message_does_not_duplicate(self, plugin):
         """Subsequent messages same day don't add duplicate checkin entries."""
         event = make_mock_event(group_id="5002", sender_id="u1")
-        await plugin.on_msg(event)
-        await plugin.on_msg(event)
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
+        async for _ in plugin.on_msg(event): pass
+        async for _ in plugin.on_msg(event): pass
 
         today = datetime.date.today().isoformat()
         checkins = plugin.activity_data["groups"]["5002"]["daily_checkins"][today]
@@ -63,7 +63,7 @@ class TestCheckinCollection:
     async def test_checkin_order_preserved(self, plugin):
         """Check-in order reflects order of first messages."""
         for uid in ("u1", "u2", "u3"):
-            await plugin.on_msg(make_mock_event(group_id="5003", sender_id=uid))
+            async for _ in plugin.on_msg(make_mock_event(group_id="5003", sender_id=uid)): pass
 
         today = datetime.date.today().isoformat()
         checkins = plugin.activity_data["groups"]["5003"]["daily_checkins"][today]
@@ -81,7 +81,7 @@ class TestCheckinCollection:
             "daily_checkins": {},
         }
         event = make_mock_event(group_id=gid, sender_id="u1")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         checkins = plugin.activity_data["groups"][gid]["daily_checkins"].get(today, [])
         assert "u1" in checkins
@@ -100,7 +100,7 @@ class TestCheckinCollection:
         }
 
         event = make_mock_event(group_id=gid, sender_id="u2")
-        await plugin.on_msg(event)
+        async for _ in plugin.on_msg(event): pass
 
         checkins = plugin.activity_data["groups"][gid]["daily_checkins"]
         assert yesterday in checkins   # yesterday's data still there
@@ -178,7 +178,7 @@ class TestMilestoneBroadcast:
             return MagicMock()
 
         with patch("asyncio.create_task", side_effect=fake_create_task):
-            await plugin.on_msg(make_mock_event(group_id=gid, sender_id="u1"))
+            async for _ in plugin.on_msg(make_mock_event(group_id=gid, sender_id="u1")): pass
 
         # streak should now be 7; milestone should have been scheduled
         streak = plugin.activity_data["groups"][gid]["members"]["u1"]["streak"]
@@ -207,7 +207,7 @@ class TestMilestoneBroadcast:
             return MagicMock()
 
         with patch("asyncio.create_task", side_effect=fake_create_task):
-            await plugin.on_msg(make_mock_event(group_id=gid, sender_id="u1"))
+            async for _ in plugin.on_msg(make_mock_event(group_id=gid, sender_id="u1")): pass
 
         streak = plugin.activity_data["groups"][gid]["members"]["u1"]["streak"]
         assert streak == 5
