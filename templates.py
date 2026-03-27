@@ -243,6 +243,7 @@ def HELP(th):
 <div class="r"><span class="l">/活跃热力图</span><span class="v">近14天发言时段分布图</span></div>
 <div class="r"><span class="l">/打卡榜</span><span class="v">今日打卡排行 · 连续天数称号</span></div>
 <div class="r"><span class="l">/活跃评分</span><span class="v">群活跃综合评分卡（S/A/B/C/D 级）</span></div>
+<div class="r"><span class="l">/每日一问</span><span class="v">AI 发起今日群聊话题讨论</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>
@@ -764,5 +765,33 @@ def SCORE(th):
     <div class="score-stat-num">{{ msgs7 }}</div>
     <div class="score-stat-label">近7天总量</div>
   </div>
+</div>
+""" + _BRAND + _TAIL
+
+
+# ====== 每日一问 ======
+def TOPIC(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.topic-body{{padding:28px 28px 20px}}
+.topic-label{{display:inline-block;padding:3px 12px;border-radius:12px;font-size:12px;font-weight:700;background:{t['sec_bg']};color:{t['text2']};margin-bottom:16px}}
+.topic-q{{font-size:20px;font-weight:900;color:{t['text']};line-height:1.6;word-break:break-word}}
+.topic-footer{{display:flex;align-items:center;gap:8px;padding:14px 28px;background:{t['sec_bg']};border-top:1px solid {t['sec_border']};font-size:12px;color:{t['text2']}}}
+.topic-ai-badge{{display:inline-block;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;background:linear-gradient(90deg,{t['stat_hdr1']},{t['stat_hdr2']});color:#fff}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['query_hdr1']},{t['query_hdr2']})">
+  {_ANIME}
+  <h1>💬 每日一问</h1><div class="sub">{{{{ date }}}} · {{{{ group_name }}}}</div>
+  {_META}
+</div>
+""" + """
+<div class="topic-body">
+  <div class="topic-label">今日话题</div>
+  <div class="topic-q">{{ topic }}</div>
+</div>
+<div class="topic-footer">
+  {% if is_ai %}<span class="topic-ai-badge">AI 生成</span>{% endif %}
+  <span>快来发表你的看法～ 💭</span>
 </div>
 """ + _BRAND + _TAIL

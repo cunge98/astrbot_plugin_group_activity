@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE TOPIC
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -49,6 +49,38 @@ WELCOME_TEMPLATES = {
     "古风雅致": "缘起缘落，缘分使然。欢迎 {nickname} 踏入此间，愿在此留下美好足迹。🌸 敢问阁下平日里有何雅好，可与众人共赏？",
     "简洁清爽": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
 }
+DAILY_TOPICS = [
+    "如果可以有一个超能力，你会选什么？为什么？",
+    "你最近在看什么书/剧/游戏，值得推荐吗？",
+    "如果明天是你人生中的最后一天，你会做什么？",
+    "你觉得人与人之间最重要的品质是什么？",
+    "有没有一首歌，每次听都会想起某段记忆？",
+    "如果只能选一种食物吃一辈子，你选什么？",
+    "你有什么一直想做但还没做到的事情？",
+    "你觉得「努力」和「天赋」哪个更重要？",
+    "如果能回到过去改变一件事，你会选什么？",
+    "你最喜欢哪个季节？为什么？",
+    "你遇到过最善意的陌生人是谁？发生了什么？",
+    "如果可以和历史上任意一人共进晚餐，你选谁？",
+    "你最近学到的最有趣的知识是什么？",
+    "你认为什么样的人生算是「成功」的？",
+    "你有没有什么坚持了很久的小习惯？",
+    "如果你是一种动物，你觉得自己会是哪种？",
+    "你觉得哪个年龄段是人生最美好的？",
+    "最近有什么让你感到开心的小事吗？",
+    "你最想去但还没去过的地方是哪里？",
+    "你有没有因为一部作品而改变了看法的经历？",
+    "如果可以学会一门新技能（瞬间掌握），你选什么？",
+    "你觉得什么样的友谊才是真正的友谊？",
+    "你最享受哪种独处方式？",
+    "有没有一个让你深受启发的人？他/她做了什么？",
+    "你今天做了什么让自己感到满意的事？",
+    "如果给现在的自己写一封信，你会说什么？",
+    "你觉得「幸福」对你来说意味着什么？",
+    "你有没有一个看似简单但其实很难坚持的目标？",
+    "如果可以瞬间精通一门外语，你选哪种？",
+    "你认为现代人最容易忽视的事情是什么？",
+]
 
 
 @register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.2.0")
@@ -355,6 +387,24 @@ class GroupActivityPlugin(Star):
                     message=f"[CQ:at,qq={sid}] {msg}")
         except Exception as e:
             logger.warning(f"入群欢迎失败(群{gid}): {e}")
+
+    # ==================== 每日一问 ====================
+
+    async def _gen_topic(self, group_name="", umo=None):
+        """生成每日话题，优先 AI，降级到预设列表。返回 (topic_str, is_ai)。"""
+        if self.config.get("ai_enabled"):
+            group_ctx = f"「{group_name}」" if group_name else "本群"
+            r = await self._ai(
+                f"请为{group_ctx}群聊生成一个今日讨论话题。"
+                f"要求：一句话，轻松有趣，能引发大家分享和讨论，与当前人设相符。"
+                f"只输出问题本身，不超过50字，不加序号。",
+                self._persona(), umo
+            )
+            if r:
+                return r.strip()[:200], True
+        # 按日期确定性地选取，同一天所有群看到不同题（用 group 哈希偏移）
+        day_idx = datetime.date.today().timetuple().tm_yday
+        return DAILY_TOPICS[day_idx % len(DAILY_TOPICS)], False
 
     # ==================== 打卡 ====================
 
@@ -1038,6 +1088,31 @@ class GroupActivityPlugin(Star):
             yield event.image_result(await self._img(T.SCORE, score_data, gid=gid))
         except Exception as e:
             logger.error(f"评分卡渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
+
+    @filter.command("每日一问")
+    async def cmd_daily_topic(self, event: AstrMessageEvent):
+        """每日话题发起——AI 生成或从预设中选取"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        gs = self.activity_data.setdefault("groups", {}).setdefault(gid, {})
+        today = datetime.date.today().isoformat()
+        cached = gs.get("daily_topics", {}).get(today)
+        if cached:
+            topic, is_ai = cached["topic"], cached.get("is_ai", False)
+        else:
+            group_name = gs.get("group_name", "")
+            topic, is_ai = await self._gen_topic(group_name, event.unified_msg_origin)
+            gs.setdefault("daily_topics", {})[today] = {"topic": topic, "is_ai": is_ai}
+            self._save()
+        try:
+            yield event.image_result(await self._img(T.TOPIC, {
+                "topic": topic,
+                "date": today,
+                "group_name": gs.get("group_name", ""),
+                "is_ai": is_ai,
+            }, gid=gid))
+        except Exception as e:
+            logger.error(f"每日一问渲染失败: {e}"); yield event.plain_result(f"💬 今日一问\n\n{topic}")
 
     @filter.command("手动检测")
     @filter.permission_type(filter.PermissionType.ADMIN)

@@ -1,0 +1,173 @@
+"""
+Tests for the /每日一问 daily topic feature:
+  - _gen_topic() returns fallback when AI disabled
+  - _gen_topic() returns AI text and is_ai=True when AI enabled
+  - fallback topic cycles deterministically by day-of-year
+  - cmd_daily_topic renders image card
+  - cmd_daily_topic caches result for the day
+  - cmd_daily_topic plain fallback on render error
+"""
+import datetime
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from helpers import make_plugin, make_mock_event, make_config
+
+
+@pytest.fixture
+def plugin(tmp_path):
+    return make_plugin(tmp_path=str(tmp_path))
+
+
+def get_daily_topics():
+    import astrbot_plugin_group_activity.main as m
+    return m.DAILY_TOPICS
+
+
+# ── _gen_topic unit tests ────────────────────────────────────────────────────
+
+class TestGenTopic:
+
+    async def test_returns_fallback_when_ai_disabled(self, tmp_path):
+        cfg = make_config(ai_enabled=False)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        topic, is_ai = await plugin._gen_topic()
+        assert isinstance(topic, str)
+        assert len(topic) > 0
+        assert is_ai is False
+
+    async def test_fallback_topic_in_known_list(self, tmp_path):
+        cfg = make_config(ai_enabled=False)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        topic, _ = await plugin._gen_topic()
+        assert topic in get_daily_topics()
+
+    async def test_fallback_is_deterministic_for_same_day(self, tmp_path):
+        cfg = make_config(ai_enabled=False)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        t1, _ = await plugin._gen_topic()
+        t2, _ = await plugin._gen_topic()
+        assert t1 == t2
+
+    async def test_ai_topic_returned_when_ai_enabled(self, tmp_path):
+        cfg = make_config(ai_enabled=True, ai_provider="test_provider")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._ai = AsyncMock(return_value="  今天你最近玩了什么游戏？  ")
+        topic, is_ai = await plugin._gen_topic("测试群")
+        assert is_ai is True
+        assert topic == "今天你最近玩了什么游戏？"
+
+    async def test_ai_failure_falls_back_to_preset(self, tmp_path):
+        cfg = make_config(ai_enabled=True, ai_provider="test_provider")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._ai = AsyncMock(return_value=None)
+        topic, is_ai = await plugin._gen_topic()
+        assert is_ai is False
+        assert topic in get_daily_topics()
+
+    async def test_ai_topic_truncated_to_200_chars(self, tmp_path):
+        cfg = make_config(ai_enabled=True, ai_provider="test_provider")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._ai = AsyncMock(return_value="x" * 500)
+        topic, is_ai = await plugin._gen_topic()
+        assert len(topic) <= 200
+        assert is_ai is True
+
+
+# ── cmd_daily_topic integration tests ────────────────────────────────────────
+
+class TestCmdDailyTopic:
+
+    async def test_renders_image_with_topic_data(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        captured = {}
+
+        async def fake_img(tmpl, data, **kw):
+            captured.update(data)
+            return b"fake_png"
+
+        plugin._img = fake_img
+        event = make_mock_event(group_id="9999", sender_id="u1")
+        event.image_result = MagicMock(return_value="img_result")
+        results = []
+        async for r in plugin.cmd_daily_topic(event):
+            results.append(r)
+
+        assert results
+        assert "topic" in captured
+        assert "date" in captured
+        assert captured["date"] == datetime.date.today().isoformat()
+
+    async def test_caches_topic_for_same_day(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        gen_calls = []
+        original_gen = plugin._gen_topic
+
+        async def counting_gen(*args, **kwargs):
+            gen_calls.append(1)
+            return await original_gen(*args, **kwargs)
+
+        plugin._gen_topic = counting_gen
+        plugin._img = AsyncMock(return_value=b"fake")
+
+        event = make_mock_event(group_id="8888", sender_id="u1")
+        event.image_result = MagicMock(return_value="img_result")
+
+        # First call — generates
+        async for _ in plugin.cmd_daily_topic(event):
+            pass
+        # Second call — should use cache
+        async for _ in plugin.cmd_daily_topic(event):
+            pass
+
+        assert len(gen_calls) == 1
+
+    async def test_same_topic_returned_from_cache(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        topics_rendered = []
+
+        async def fake_img(tmpl, data, **kw):
+            topics_rendered.append(data["topic"])
+            return b"fake"
+
+        plugin._img = fake_img
+        event = make_mock_event(group_id="7777", sender_id="u1")
+        event.image_result = MagicMock(return_value="img_result")
+
+        async for _ in plugin.cmd_daily_topic(event):
+            pass
+        async for _ in plugin.cmd_daily_topic(event):
+            pass
+
+        assert len(topics_rendered) == 2
+        assert topics_rendered[0] == topics_rendered[1]
+
+    async def test_plain_fallback_on_render_error(self, tmp_path):
+        plugin = make_plugin(tmp_path=str(tmp_path))
+        plugin._img = AsyncMock(side_effect=RuntimeError("render fail"))
+        event = make_mock_event(group_id="6666", sender_id="u1")
+        event.plain_result = MagicMock(return_value="plain_result")
+        results = []
+        async for r in plugin.cmd_daily_topic(event):
+            results.append(r)
+        assert results
+        event.plain_result.assert_called_once()
+        call_text = event.plain_result.call_args[0][0]
+        assert "今日一问" in call_text
+
+    async def test_is_ai_flag_stored_and_passed(self, tmp_path):
+        cfg = make_config(ai_enabled=True, ai_provider="test_provider")
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._ai = AsyncMock(return_value="AI生成的话题问题")
+        captured = {}
+
+        async def fake_img(tmpl, data, **kw):
+            captured.update(data)
+            return b"fake"
+
+        plugin._img = fake_img
+        event = make_mock_event(group_id="5555", sender_id="u1")
+        event.image_result = MagicMock(return_value="img_result")
+        async for _ in plugin.cmd_daily_topic(event):
+            pass
+
+        assert captured.get("is_ai") is True
