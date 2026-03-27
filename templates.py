@@ -426,8 +426,8 @@ def WEEKLY(th):
     {{% set by = 65 - bh %}}
     {{% set cx = loop.index0 * 60 + 30 %}}
     <rect x="{{{{ loop.index0 * 60 + 6 }}}}" y="{{{{ by }}}}" width="48" height="{{{{ bh }}}}" rx="3" fill="url(#wbg)"/>
-    <text x="{{{{ cx }}}}" y="{{{{ [by - 2, 9]|max }}}}" text-anchor="middle" font-size="9" font-weight="600" fill="{t['text2']}">{{{{ d.v }}}}</text>
-    <text x="{{{{ cx }}}}" y="87" text-anchor="middle" font-size="9" fill="{t['subtle']}">{{{{ d.label }}}}</text>
+    <text x="{{{{ cx }}}}" y="{{{{ [by - 4, 12]|max }}}}" text-anchor="middle" font-size="11" font-weight="700" fill="{t['text']}" stroke="white" stroke-width="3" paint-order="stroke fill">{{{{ d.v }}}}</text>
+    <text x="{{{{ cx }}}}" y="87" text-anchor="middle" font-size="10" fill="{t['subtle']}">{{{{ d.label }}}}</text>
     {{% if not loop.last %}}
     {{% set nbh = [chart[loop.index].pct * 65 // 100, 2]|max %}}
     <line x1="{{{{ cx }}}}" y1="{{{{ by }}}}" x2="{{{{ loop.index * 60 + 30 }}}}" y2="{{{{ 65 - nbh }}}}" stroke="{t['hdr1']}" stroke-width="1.5" stroke-opacity="0.7"/>
@@ -583,8 +583,8 @@ def TREND(th):
     {% set by = 120 - bh %}
     {% set cx = loop.index0 * 35 + 17 %}
     <rect x="{{ loop.index0 * 35 + 4 }}" y="{{ by }}" width="27" height="{{ bh }}" rx="3" fill="{{ d.color }}" fill-opacity="0.8"/>
-    <text x="{{ cx }}" y="{{ [by - 2, 9]|max }}" text-anchor="middle" font-size="8" font-weight="600" fill="{{ d.color }}">{{ d.v }}</text>
-    <text x="{{ cx }}" y="142" text-anchor="middle" font-size="8" fill="#999">{{ d.label }}</text>
+    <text x="{{ cx }}" y="{{ [by - 4, 12]|max }}" text-anchor="middle" font-size="11" font-weight="700" fill="#333" stroke="white" stroke-width="3" paint-order="stroke fill">{{ d.v }}</text>
+    <text x="{{ cx }}" y="142" text-anchor="middle" font-size="10" fill="#888">{{ d.label }}</text>
     {% if not loop.last %}
     {% set nbh = [data[loop.index].pct * 120 // 100, 2]|max %}
     <line x1="{{ cx }}" y1="{{ by }}" x2="{{ loop.index * 35 + 17 }}" y2="{{ 120 - nbh }}" stroke="{{ d.color }}" stroke-width="1.5" stroke-opacity="0.8"/>
