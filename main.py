@@ -448,6 +448,9 @@ class GroupActivityPlugin(Star):
         last_weekly_date = ""
         last_cleanup = ""
         last_check_ts = 0.0   # 上次执行活跃检测的时间戳
+        last_topic_date = ""
+        last_topic_hour = -1  # 记录上次触发时的配置时间，用于检测时间改变
+        last_topic_min  = -1
         while True:
             try:
                 # 刷盘：如果有脏数据则立即写入
@@ -479,13 +482,21 @@ class GroupActivityPlugin(Star):
                         await self._send_auto_weekly()
                         last_weekly_date = today
 
-                # 每日一问自动发送（幂等由 _send_auto_topic 内部保证，无需 last_topic_date）
-                # 这样改变发送时间后，只要今日尚未发送，新时间到达即可正确触发
+                # 每日一问自动发送
+                # last_topic_date 防止同一配置时间重复触发；
+                # 若用户更改了发送时间（th/tm 变化），重置 last_topic_date
+                # 以便新时间到达后重新触发（幂等由 _send_auto_topic 内部 msg_id 保证）
                 if self.config.get("auto_topic") and self._is_topic_day():
                     th, tm = self._topic_time()
                     now_dt = datetime.datetime.now()
-                    if now_dt.hour > th or (now_dt.hour == th and now_dt.minute >= tm):
+                    past_target = now_dt.hour > th or (now_dt.hour == th and now_dt.minute >= tm)
+                    if (th, tm) != (last_topic_hour, last_topic_min):
+                        # 配置时间改变，清除日期锁
+                        last_topic_date = ""
+                        last_topic_hour, last_topic_min = th, tm
+                    if past_target and last_topic_date != today:
                         await self._send_auto_topic()
+                        last_topic_date = today
 
             except asyncio.CancelledError: break
             except Exception as e: logger.error(f"定时任务出错: {e}")
@@ -546,7 +557,7 @@ class GroupActivityPlugin(Star):
         if not cl:
             logger.warning("每日一问自动发送: 未获取到 bot 客户端，跳过")
             return
-        targets = await self._target_groups(cl)
+        targets = [g for g in await self._target_groups(cl) if self._mon(g)]
         if not targets:
             logger.info("每日一问自动发送: 无监控群，跳过")
             return
@@ -676,7 +687,7 @@ class GroupActivityPlugin(Star):
         if not cl:
             logger.warning("自动周报: 未获取到bot客户端，跳过")
             return
-        targets = await self._target_groups(cl)
+        targets = [g for g in await self._target_groups(cl) if self._mon(g)]
         if not targets:
             logger.info("自动周报: 无监控群，跳过")
             return

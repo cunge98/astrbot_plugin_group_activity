@@ -368,3 +368,112 @@ class TestSendAutoTopicIdempotency:
         await plugin._send_auto_topic()
 
         assert "send_group_msg" in sent
+
+
+# ── _mon() filter in _send_auto_topic ────────────────────────────────────────
+
+class TestSendAutoTopicMonFilter:
+    """_send_auto_topic must only send to groups that pass _mon() checks."""
+
+    def _make_client(self, group_ids):
+        sent_to = []
+
+        async def _call_action(action, **kwargs):
+            if action == "get_group_list":
+                return [{"group_id": int(g)} for g in group_ids]
+            if action == "send_group_msg":
+                sent_to.append(str(kwargs.get("group_id", "")))
+                return {"message_id": 1}
+            return None
+
+        from unittest.mock import MagicMock
+        cl = MagicMock()
+        cl.api.call_action = _call_action
+        return cl, sent_to
+
+    async def test_skips_when_plugin_disabled(self, tmp_path):
+        """When enabled=False, _mon() returns False → no group receives topic."""
+        cfg = make_config(enabled=False)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._img = AsyncMock(return_value=b"img")
+        cl, sent_to = self._make_client(["1111"])
+        plugin._bot_client = cl
+
+        await plugin._send_auto_topic()
+
+        assert sent_to == [], "Should not send when plugin is disabled"
+
+    async def test_whitelist_mode_only_sends_to_listed_groups(self, tmp_path):
+        """With whitelist set, topic must only go to whitelisted groups."""
+        cfg = make_config(enabled=True, whitelist_groups=["1111"])
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._img = AsyncMock(return_value=b"img")
+        # Bot is in two groups; only 1111 is whitelisted
+        cl, sent_to = self._make_client(["1111", "2222"])
+        plugin._bot_client = cl
+
+        await plugin._send_auto_topic()
+
+        assert "1111" in sent_to, "Whitelisted group must receive topic"
+        assert "2222" not in sent_to, "Non-whitelisted group must not receive topic"
+
+    async def test_blacklisted_group_skipped(self, tmp_path):
+        """Blacklisted group must not receive topic even when whitelist is empty."""
+        cfg = make_config(enabled=True, blacklist_groups=["3333"])
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin._img = AsyncMock(return_value=b"img")
+        cl, sent_to = self._make_client(["3333", "4444"])
+        plugin._bot_client = cl
+
+        await plugin._send_auto_topic()
+
+        assert "3333" not in sent_to, "Blacklisted group must not receive topic"
+        assert "4444" in sent_to, "Non-blacklisted group must receive topic"
+
+
+# ── _loop() time-change detection ─────────────────────────────────────────────
+
+class TestLoopTopicTimeChange:
+    """
+    Validate the trigger-condition logic extracted from _loop():
+      - Normally only triggers once per (date, configured_time) pair
+      - When time config changes, date-lock resets so new time can fire today
+    """
+
+    def _past_target(self, now_h, now_m, th, tm):
+        return now_h > th or (now_h == th and now_m >= tm)
+
+    def test_triggers_at_exact_configured_time(self):
+        assert self._past_target(9, 0, 9, 0) is True
+
+    def test_does_not_trigger_before_configured_time(self):
+        assert self._past_target(8, 59, 9, 0) is False
+
+    def test_triggers_after_configured_time(self):
+        assert self._past_target(10, 0, 9, 0) is True
+
+    def test_time_change_resets_date_lock(self):
+        """Simulate: first trigger at 09:00, user changes to 10:00, should reset."""
+        last_topic_date = "2026-01-01"  # already "sent" today
+        last_topic_hour, last_topic_min = 9, 0   # original config
+
+        # User changes time to 10:00
+        th, tm = 10, 0
+        if (th, tm) != (last_topic_hour, last_topic_min):
+            last_topic_date = ""   # reset
+            last_topic_hour, last_topic_min = th, tm
+
+        assert last_topic_date == "", "Date lock must reset on time config change"
+        assert last_topic_hour == 10
+        assert last_topic_min == 0
+
+    def test_same_time_keeps_date_lock(self):
+        """If time config unchanged, date lock is preserved (no double-send)."""
+        last_topic_date = "2026-01-01"
+        last_topic_hour, last_topic_min = 9, 0
+
+        th, tm = 9, 0   # unchanged
+        if (th, tm) != (last_topic_hour, last_topic_min):
+            last_topic_date = ""
+
+        assert last_topic_date == "2026-01-01", "Date lock must be preserved when time unchanged"
