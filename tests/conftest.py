@@ -10,6 +10,8 @@ import time
 import asyncio
 import datetime
 import tempfile
+import shutil
+import atexit
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, patch
 
@@ -59,8 +61,18 @@ class _FakeStar:
     async def html_render(self, tmpl, data, options=None):
         return b"fake_rendered_image"
 
+# StarTools.get_data_dir() stub — 覆盖框架数据目录规范契约
+_module_tmpdir = tempfile.mkdtemp()
+atexit.register(shutil.rmtree, _module_tmpdir, ignore_errors=True)  # 测试结束自动清理
+
+class _FakeStarTools:
+    @staticmethod
+    def get_data_dir(plugin_name: str) -> str:
+        return str(Path(_module_tmpdir) / "plugin_data" / plugin_name)
+
 _api_star_stub = MagicMock()
 _api_star_stub.Star = _FakeStar
+_api_star_stub.StarTools = _FakeStarTools
 _api_star_stub.register = lambda *a, **kw: (lambda cls: cls)
 _api_star_stub.Context = MagicMock
 
@@ -76,8 +88,7 @@ class _FakeAiocqhttpEvent:
 _aiocqhttp_event_stub = MagicMock()
 _aiocqhttp_event_stub.AiocqhttpMessageEvent = _FakeAiocqhttpEvent
 
-# astrbot.core.utils.astrbot_path  –  point DATA_DIR at a temp folder
-_module_tmpdir = tempfile.mkdtemp()
+# astrbot.core.utils.astrbot_path  –  fallback path (used if StarTools import fails)
 _path_stub = MagicMock()
 _path_stub.get_astrbot_data_path = lambda: _module_tmpdir
 

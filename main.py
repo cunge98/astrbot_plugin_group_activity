@@ -19,10 +19,14 @@ except ImportError:
 from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE TOPIC VIBE
 
 try:
-    from astrbot.core.utils.astrbot_path import get_astrbot_data_path
-    DATA_DIR = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_group_activity"
-except ImportError:
-    DATA_DIR = Path("data") / "plugin_data" / "astrbot_plugin_group_activity"
+    from astrbot.api.star import StarTools
+    DATA_DIR = Path(StarTools.get_data_dir("astrbot_plugin_group_activity"))
+except Exception:
+    try:
+        from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+        DATA_DIR = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_group_activity"
+    except Exception:
+        DATA_DIR = Path("data") / "plugin_data" / "astrbot_plugin_group_activity"
 
 # Playwright 高清截图 — 多策略降级
 RENDER_STRATEGIES = [
@@ -168,6 +172,11 @@ class GroupActivityPlugin(Star):
     @staticmethod
     def _nk(n, u): return n[:12] if n and n.strip() else str(u)
 
+    @staticmethod
+    def _cq_escape(text: str) -> str:
+        """转义 CQ 码特殊字符，防止用户昵称/AI 输出触发 CQ 码注入。"""
+        return str(text).replace("&", "&amp;").replace("[", "&#91;").replace("]", "&#93;").replace(",", "&#44;")
+
     # ==================== 渲染 ====================
 
     def _theme(self):
@@ -235,7 +244,7 @@ class GroupActivityPlugin(Star):
         r = await self._ai(f"群成员「{nick}」因{days}天未发言被警告，申诉理由：「{reason}」\n裁决是否合理。第一行写「通过」或「驳回」，第二行写评语不超60字。", self._persona(), umo)
         if r:
             ls = r.strip().split("\n", 1)
-            ok = "通过" in ls[0]
+            ok = "通过" in ls[0] and "不通过" not in ls[0]
             return ok, ls[1].strip()[:150] if len(ls) > 1 else ("赦免~" if ok else "理由太敷衍！")
         return False, "AI 裁判暂时离线。"
 
@@ -361,6 +370,12 @@ class GroupActivityPlugin(Star):
         try:
             days = max(1, (int(time.time()) - wa) // 86400 + 1)
             ok, comment = await self._ai_judge(nick, reason, days, event.unified_msg_origin)
+            if ok:
+                # 申诉通过 → 立即清除警告状态，防止成员仍按原计时被踢
+                ms = self.activity_data.get("groups", {}).get(gid, {}).get("members", {})
+                if sid in ms:
+                    ms[sid]["warned_at"] = None
+                    self._save()
             await event.send(event.plain_result(f"[AI 裁决] {nick} 的申诉{'通过' if ok else '被驳回'}！\n{comment}"))
         except Exception as e: logger.error(f"AI申诉失败: {e}")
 
@@ -407,7 +422,7 @@ class GroupActivityPlugin(Star):
             cl = await self._cli()
             if cl:
                 await cl.api.call_action("send_group_msg", group_id=int(gid),
-                    message=f"[CQ:at,qq={sid}] {msg}")
+                    message=f"[CQ:at,qq={sid}] {self._cq_escape(msg)}")
         except Exception as e:
             logger.warning(f"入群欢迎失败(群{gid}): {e}")
 
@@ -446,7 +461,7 @@ class GroupActivityPlugin(Star):
             cl = await self._cli()
             if cl:
                 await cl.api.call_action("send_group_msg", group_id=int(gid),
-                    message=f"🎉 [CQ:at,qq={sid}] 连续活跃 {streak} 天，荣获称号【{titles[streak]}】！继续保持哦~")
+                    message=f"🎉 [CQ:at,qq={sid}] 连续活跃 {streak} 天，荣获称号【{self._cq_escape(titles[streak])}】！继续保持哦~")
         except Exception as e:
             logger.warning(f"里程碑广播失败(群{gid}): {e}")
 
@@ -1310,8 +1325,9 @@ class GroupActivityPlugin(Star):
         返回包含状态、指标、异常信号、图表数据的字典。
         """
         today = datetime.date.today()
-        ms = activity_data.get("groups", {}).get(gid, {}).get("members", {})
-        ds = activity_data.get("groups", {}).get(gid, {}).get("daily_stats", {})
+        gd = activity_data.get("groups", {}).get(gid, {})
+        ms = gd.get("members", {})
+        ds = gd.get("daily_stats", {})
         total = len(ms)
 
         # 本周/上周日期范围
@@ -1321,20 +1337,16 @@ class GroupActivityPlugin(Star):
         this_msgs = sum(ds.get(d, 0) for d in this_days)
         last_msgs = sum(ds.get(d, 0) for d in last_days)
 
-        # 活跃人数：本周/上周各有多少人发过言（daily_stats 只有总量，用 members 的 last_active_date 近似）
-        now_ts = int(time.time())
-        this_start = (today - datetime.timedelta(days=6)).isoformat()
-        last_start = (today - datetime.timedelta(days=13)).isoformat()
-        last_end   = (today - datetime.timedelta(days=7)).isoformat()
-
-        this_active_set = {
-            uid for uid, d in ms.items()
-            if d.get("last_active_date", "") >= this_start
-        }
-        last_active_set = {
-            uid for uid, d in ms.items()
-            if last_start <= d.get("last_active_date", "") <= last_end
-        }
+        # 活跃人数：用 daily_checkins 精确还原本周/上周各有多少人发过言
+        # last_active_date 只记录最近一次，无法还原上周集合，故改用打卡记录
+        checkins = gd.get("daily_checkins", {})
+        this_active_set: set = set()
+        last_active_set: set = set()
+        for i in range(7):
+            d_this = (today - datetime.timedelta(days=i)).isoformat()
+            d_last = (today - datetime.timedelta(days=7 + i)).isoformat()
+            this_active_set.update(checkins.get(d_this, []))
+            last_active_set.update(checkins.get(d_last, []))
         this_active = len(this_active_set)
         last_active = len(last_active_set)
 

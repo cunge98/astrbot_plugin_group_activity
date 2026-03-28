@@ -37,13 +37,17 @@ def _seed_daily_stats(plugin, gid, offsets_and_counts):
 
 
 def _seed_members(plugin, gid, members):
-    """Seed member records.
+    """Seed member records and corresponding daily_checkins entries.
 
     members: list of (uid, last_active_date) tuples.
+    The last_active_date is also added to daily_checkins so that the
+    daily_checkins-based active-count in _calc_vibe() works correctly.
     """
     today = datetime.date.today()
     gs = plugin.activity_data.setdefault("groups", {}).setdefault(gid, {})
     ms = gs.setdefault("members", {})
+    checkins = gs.setdefault("daily_checkins", {})
+    cutoff_this = (today - datetime.timedelta(days=13)).isoformat()
     for uid, last_active_date in members:
         ms[str(uid)] = {
             "last_active": int(time.time()),
@@ -54,6 +58,12 @@ def _seed_members(plugin, gid, members):
             "streak": 1,
             "last_active_date": last_active_date,
         }
+        # Populate daily_checkins so _calc_vibe()'s active-count logic can use it.
+        # Only dates within the 14-day window are relevant.
+        if last_active_date >= cutoff_this:
+            day_list = checkins.setdefault(last_active_date, [])
+            if str(uid) not in day_list:
+                day_list.append(str(uid))
 
 
 # ── _calc_vibe unit tests ─────────────────────────────────────────────────────
