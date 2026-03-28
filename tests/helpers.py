@@ -37,6 +37,9 @@ def make_config(**overrides) -> dict:
         "ai_welcome": False,
         "welcome_style": "AI生成",
         "welcome_message": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
+        "auto_topic": False,
+        "auto_topic_day": "每天",
+        "auto_topic_time": "09:00",
     }
     defaults.update(overrides)
     return defaults

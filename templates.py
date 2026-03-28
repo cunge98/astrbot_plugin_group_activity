@@ -218,7 +218,7 @@ _META_FULL = '<div class="meta"><span>{{ group_name }}</span><span>共 {{ member
 _META = '<div class="meta"><span>{{ now }}</span></div><div class="slogan">{{ slogan }}</div>'
 
 # 品牌底栏（Jinja2 模板）
-_BRAND = '<div class="brand"><span>群活跃检测 v2.1</span><span>·</span><span>{{ now }}</span></div>'
+_BRAND = '<div class="brand"><span>群活跃检测 v2.2</span><span>·</span><span>{{ now }}</span></div>'
 
 _TAIL = """
 </div>
@@ -226,13 +226,145 @@ _TAIL = """
 </html>"""
 
 
-# ====== 帮助 ======
+# ====== 群氛围预警 ======
+def VIBE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<div class="hdr" style="background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']})">
+  {_ANIME}
+  <h1>🌡️ 群氛围异常预警</h1>
+  <div class="sub">{{{{ group_name or "当前群" }}}} · {{{{ date_range }}}}</div>
+</div>
+
+<!-- 总体状态横幅 -->
+<div style="margin:14px 16px 6px;border-radius:14px;padding:16px 20px;
+     background:{{{{ status_bg }}}};border-left:5px solid {{{{ status_color }}}};display:flex;align-items:center;gap:14px">
+  <div style="font-size:2rem;line-height:1">{{{{ status_icon }}}}</div>
+  <div>
+    <div style="font-size:1.05rem;font-weight:700;color:{{{{ status_color }}}}">{{{{ status_label }}}}</div>
+    <div style="font-size:.82rem;color:#666;margin-top:3px">{{{{ status_desc }}}}</div>
+  </div>
+</div>
+
+<!-- 三大指标卡 -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 16px">
+
+  <!-- 消息量对比 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">📨 消息量</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ msg_color }}}}">{{{{ this_week_msgs }}}}</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(52,199,89,1)' if msg_delta >= 0 else 'rgba(255,59,48,1)' }}}}">
+      {{{{ '+' if msg_delta >= 0 else '' }}}}{{{{ msg_delta }}}}%
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_msgs }}}}</div>
+  </div>
+
+  <!-- 活跃人数对比 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">👥 活跃人数</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ active_color }}}}">{{{{ this_week_active }}}}</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(52,199,89,1)' if active_delta >= 0 else 'rgba(255,59,48,1)' }}}}">
+      {{{{ '+' if active_delta >= 0 else '' }}}}{{{{ active_delta }}}}%
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_active }}}}</div>
+  </div>
+
+  <!-- 沉默率 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">🤫 沉默率</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ silent_color }}}}">{{{{ silent_pct }}}}%</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(255,59,48,1)' if silent_delta >= 0 else 'rgba(52,199,89,1)' }}}}">
+      {{{{ '+' if silent_delta >= 0 else '' }}}}{{{{ silent_delta }}}}%pt
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_silent }}}}%</div>
+  </div>
+</div>
+
+<!-- 每日消息量迷你图 -->
+<div class="sec">📊 最近 14 天消息走势</div>
+<div style="margin:0 16px 10px;background:#f8f9fb;border-radius:12px;padding:14px 12px 10px">
+
+  <!-- 消息数标签行（高活跃日显示数值）-->
+  <div style="display:flex;gap:4px;height:16px;margin-bottom:3px">
+    {{% for d in chart %}}
+    <div style="flex:1;text-align:center;font-size:.5rem;line-height:16px;
+         color:{{% if d.is_this_week %}}#2a9a56{{% else %}}#5b87cc{{% endif %}};font-weight:700">
+      {{% if d.count > 0 %}}{{{{ d.count }}}}{{% endif %}}
+    </div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 柱状图（像素高度直接设置，align-items:flex-end 保证底部对齐）-->
+  <div style="display:flex;align-items:flex-end;gap:4px;height:90px;border-bottom:1px solid #e0e4e8">
+    {{% for d in chart %}}
+    <div style="flex:1;background:{{{{ d.color }}}};border-radius:3px 3px 0 0;
+         height:{{{{ d.height_px }}}}px"></div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 日期标签 -->
+  <div style="display:flex;gap:4px;margin-top:5px">
+    {{% for d in chart %}}
+    <div style="flex:1;text-align:center;font-size:.52rem;
+         {{% if d.highlight %}}font-weight:800;color:#444;{{% else %}}color:#bbb;{{% endif %}}">
+      {{{{ d.label }}}}
+    </div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 图例 -->
+  <div style="display:flex;justify-content:flex-end;gap:14px;margin-top:8px">
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:#7eb8ff"></div>
+      <span style="font-size:.6rem;color:#999">上周</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:#43e97b"></div>
+      <span style="font-size:.6rem;color:#999">本周</span>
+    </div>
+  </div>
+</div>
+
+<!-- 异常信号列表 -->
+{{% if signals %}}
+<div class="sec">⚠️ 检测到的异常信号</div>
+<div style="margin:0 16px 10px;display:flex;flex-direction:column;gap:7px">
+  {{% for s in signals %}}
+  <div style="display:flex;align-items:flex-start;gap:10px;background:#f8f9fb;
+       border-radius:10px;padding:10px 12px;border-left:4px solid {{{{ s.color }}}}">
+    <div style="font-size:1.1rem;margin-top:1px">{{{{ s.icon }}}}</div>
+    <div>
+      <div style="font-size:.84rem;font-weight:600;color:#333">{{{{ s.title }}}}</div>
+      <div style="font-size:.76rem;color:#777;margin-top:2px">{{{{ s.desc }}}}</div>
+    </div>
+  </div>
+  {{% endfor %}}
+</div>
+{{% endif %}}
+
+<!-- AI 建议 -->
+{{% if suggestion %}}
+<div class="sec">💡 AI 建议</div>
+<div style="margin:0 16px 14px;background:linear-gradient(135deg,{t['stat_hdr1']}18,{t['stat_hdr2']}18);
+     border-radius:12px;padding:12px 14px;border:1px solid {t['stat_hdr1']}30;
+     font-size:.83rem;color:#444;line-height:1.7">
+  {{{{ suggestion }}}}
+</div>
+{{% endif %}}
+
+""" + _BRAND + _TAIL
 def HELP(th):
     t = THEMES.get(th, THEMES["清新蓝"])
     return _css(th) + f"""
 <div class="hdr" style="background:linear-gradient(135deg,{t['help_hdr1']},{t['help_hdr2']})">
   {_ANIME}
-  <h1>📋 群活跃检测 · 指令帮助</h1><div class="sub">AI 增强版 v2.1</div>
+  <h1>📋 群活跃检测 · 指令帮助</h1><div class="sub">AI 增强版 v2.2</div>
   {_META}
 </div>
 """ + """
@@ -242,6 +374,9 @@ def HELP(th):
 <div class="r"><span class="l">/活跃趋势</span><span class="v">近14天群活跃趋势图</span></div>
 <div class="r"><span class="l">/活跃热力图</span><span class="v">近14天发言时段分布图</span></div>
 <div class="r"><span class="l">/打卡榜</span><span class="v">今日打卡排行 · 连续天数称号</span></div>
+<div class="r"><span class="l">/活跃评分</span><span class="v">群活跃综合评分卡（S/A/B/C/D 级）</span></div>
+<div class="r"><span class="l">/每日一问</span><span class="v">AI 发起今日群聊话题讨论</span></div>
+<div class="r"><span class="l">/群氛围</span><span class="v">近7天群氛围异常预警（冷场/骤降/沉默）</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>
@@ -695,3 +830,159 @@ def CHECKIN(th):
   </div>
 </div>
 """ + _BRAND + _TAIL
+
+
+# ====== 活跃评分卡 ======
+def SCORE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.score-hero{{display:flex;align-items:center;gap:24px;padding:20px 28px;background:{t['sec_bg']};border-bottom:1px solid {t['sec_border']}}}
+.score-circle{{width:96px;height:96px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-weight:900;box-shadow:0 4px 16px rgba(0,0,0,.12)}}
+.score-grade{{font-size:42px;line-height:1;color:#fff}}
+.score-pts{{font-size:13px;color:rgba(255,255,255,.85);margin-top:2px}}
+.score-label-title{{font-size:20px;font-weight:900;color:{t['text']}}}
+.score-label-sub{{font-size:13px;color:{t['text2']};margin-top:4px}}
+.score-bar-wrap{{padding:0 28px 8px}}
+.score-bar-row{{margin:10px 0}}
+.score-bar-meta{{display:flex;justify-content:space-between;font-size:12px;color:{t['text2']};margin-bottom:4px}}
+.score-bar-bg{{height:10px;border-radius:5px;background:{t['border']};overflow:hidden}}
+.score-bar-fill{{height:100%;border-radius:5px}}
+.score-stat{{display:flex;border-top:1px solid {t['sec_border']}}}
+.score-stat-item{{flex:1;padding:12px 0;text-align:center;border-right:1px solid {t['sec_border']}}}
+.score-stat-item:last-child{{border-right:none}}
+.score-stat-num{{font-size:20px;font-weight:900;color:{t['text']}}}
+.score-stat-label{{font-size:11px;color:{t['text2']};margin-top:2px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']})">
+  {_ANIME}
+  <h1>📊 活跃评分卡</h1><div class="sub">{{{{ date }}}} · {{{{ group_name }}}}</div>
+  {_META}
+</div>
+""" + """
+<div class="score-hero">
+  <div class="score-circle" style="background:linear-gradient(135deg,{{ grade_color }}cc,{{ grade_color }})">
+    <div class="score-grade">{{ grade }}</div>
+    <div class="score-pts">{{ total }}分</div>
+  </div>
+  <div>
+    <div class="score-label-title">{{ icon }} {{ label }}</div>
+    <div class="score-label-sub">综合得分：{{ total }} / 100 分</div>
+  </div>
+</div>
+<div class="sec">评分维度</div>
+<div class="score-bar-wrap">
+{% for d in dims %}
+<div class="score-bar-row">
+  <div class="score-bar-meta">
+    <span>{{ d.name }}</span>
+    <span>{{ d.score }} / {{ d.max }} 分</span>
+  </div>
+  <div class="score-bar-bg">
+    <div class="score-bar-fill" style="width:{{ d.pct }}%;background:linear-gradient(90deg,#43e97b,#38f9d7)"></div>
+  </div>
+</div>
+{% endfor %}
+</div>
+<div class="sec">群概况</div>
+<div class="score-stat">
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ total_members }}</div>
+    <div class="score-stat-label">群成员总数</div>
+  </div>
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ avg7 }}</div>
+    <div class="score-stat-label">日均消息量</div>
+  </div>
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ msgs7 }}</div>
+    <div class="score-stat-label">近7天总量</div>
+  </div>
+</div>
+""" + _BRAND + _TAIL
+
+
+# ====== 每日一问 ======
+def TOPIC(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+/* ── 话题英雄区 ── */
+.topic-hero{{padding:32px 32px 24px;position:relative;overflow:hidden}}
+.topic-deco-q{{position:absolute;top:-10px;left:20px;font-size:120px;font-weight:900;
+  color:{t['query_hdr1']};opacity:.08;line-height:1;user-select:none;pointer-events:none}}
+.topic-deco-q2{{position:absolute;bottom:-30px;right:20px;font-size:120px;font-weight:900;
+  color:{t['query_hdr2']};opacity:.08;line-height:1;user-select:none;pointer-events:none}}
+.topic-tag{{display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:20px;
+  font-size:12px;font-weight:700;
+  background:linear-gradient(90deg,{t['query_hdr1']}22,{t['query_hdr2']}22);
+  color:{t['query_hdr1']};margin-bottom:18px;border:1px solid {t['query_hdr1']}44}}
+.topic-q{{font-size:22px;font-weight:900;color:{t['text']};line-height:1.7;
+  word-break:break-word;position:relative;z-index:1}}
+/* ── 讨论引导 ── */
+.topic-guide{{padding:0 28px 4px}}
+.topic-guide-item{{display:flex;align-items:flex-start;gap:12px;padding:13px 0;
+  border-bottom:1px solid {t['border']}}}
+.topic-guide-item:last-child{{border-bottom:none}}
+.topic-guide-icon{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;flex-shrink:0;background:{t['sec_bg']}}}
+.topic-guide-text{{flex:1}}
+.topic-guide-title{{font-size:13px;font-weight:700;color:{t['text']};margin-bottom:2px}}
+.topic-guide-sub{{font-size:11px;color:{t['text2']};line-height:1.5}}
+/* ── AI互动提示 ── */
+.topic-interact{{margin:16px 28px;border-radius:14px;
+  background:linear-gradient(135deg,{t['query_hdr1']}18,{t['query_hdr2']}18);
+  border:1px solid {t['query_hdr1']}33;padding:16px 20px;
+  display:flex;align-items:center;gap:14px}}
+.topic-interact-icon{{font-size:28px;flex-shrink:0}}
+.topic-interact-title{{font-size:13px;font-weight:900;color:{t['text']};margin-bottom:3px}}
+.topic-interact-sub{{font-size:11px;color:{t['text2']};line-height:1.5}}
+.topic-ai-badge{{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;
+  font-weight:700;background:linear-gradient(90deg,{t['stat_hdr1']},{t['stat_hdr2']});
+  color:#fff;margin-left:8px;vertical-align:middle}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['query_hdr1']},{t['query_hdr2']})">
+  {_ANIME}
+  <h1>💬 每日一问</h1><div class="sub">{{{{ date }}}} · {{{{ group_name }}}}</div>
+  {_META}
+</div>
+""" + """
+<div class="topic-hero">
+  <div class="topic-deco-q">"</div>
+  <div class="topic-deco-q2">"</div>
+  <div class="topic-tag">✨ 今日话题{% if is_ai %}<span class="topic-ai-badge">AI 生成</span>{% endif %}</div>
+  <div class="topic-q">{{ topic }}</div>
+</div>
+<div class="sec">💡 讨论方向参考</div>
+<div class="topic-guide">
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">💭</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">分享你的真实想法</div>
+      <div class="topic-guide-sub">你是怎么看这件事的？有没有类似的亲身经历？</div>
+    </div>
+  </div>
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">🔥</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">讲讲你的故事</div>
+      <div class="topic-guide-sub">和这个话题相关的记忆、趣事或难忘瞬间～</div>
+    </div>
+  </div>
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">🎯</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">换个角度想一想</div>
+      <div class="topic-guide-sub">如果你的答案和大多数人不同，那就更有意思了！</div>
+    </div>
+  </div>
+</div>
+<div class="topic-interact">
+  <div class="topic-interact-icon">🤖</div>
+  <div>
+    <div class="topic-interact-title">引用这条消息发言，AI 将与你互动！</div>
+    <div class="topic-interact-sub">AI 会根据你的回答内容做出有趣的个性化回复 ✨</div>
+  </div>
+</div>
+""" + _BRAND + _TAIL
+

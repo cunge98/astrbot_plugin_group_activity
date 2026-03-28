@@ -3,7 +3,7 @@
 Playwright 浏览器渲染高清图片 + LLM 大模型集成。
 """
 
-import json, time, asyncio, random, datetime, base64
+import json, time, asyncio, random, datetime, base64, re
 from pathlib import Path
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE TOPIC VIBE
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -49,6 +49,38 @@ WELCOME_TEMPLATES = {
     "古风雅致": "缘起缘落，缘分使然。欢迎 {nickname} 踏入此间，愿在此留下美好足迹。🌸 敢问阁下平日里有何雅好，可与众人共赏？",
     "简洁清爽": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
 }
+DAILY_TOPICS = [
+    "如果可以有一个超能力，你会选什么？为什么？",
+    "你最近在看什么书/剧/游戏，值得推荐吗？",
+    "如果明天是你人生中的最后一天，你会做什么？",
+    "你觉得人与人之间最重要的品质是什么？",
+    "有没有一首歌，每次听都会想起某段记忆？",
+    "如果只能选一种食物吃一辈子，你选什么？",
+    "你有什么一直想做但还没做到的事情？",
+    "你觉得「努力」和「天赋」哪个更重要？",
+    "如果能回到过去改变一件事，你会选什么？",
+    "你最喜欢哪个季节？为什么？",
+    "你遇到过最善意的陌生人是谁？发生了什么？",
+    "如果可以和历史上任意一人共进晚餐，你选谁？",
+    "你最近学到的最有趣的知识是什么？",
+    "你认为什么样的人生算是「成功」的？",
+    "你有没有什么坚持了很久的小习惯？",
+    "如果你是一种动物，你觉得自己会是哪种？",
+    "你觉得哪个年龄段是人生最美好的？",
+    "最近有什么让你感到开心的小事吗？",
+    "你最想去但还没去过的地方是哪里？",
+    "你有没有因为一部作品而改变了看法的经历？",
+    "如果可以学会一门新技能（瞬间掌握），你选什么？",
+    "你觉得什么样的友谊才是真正的友谊？",
+    "你最享受哪种独处方式？",
+    "有没有一个让你深受启发的人？他/她做了什么？",
+    "你今天做了什么让自己感到满意的事？",
+    "如果给现在的自己写一封信，你会说什么？",
+    "你觉得「幸福」对你来说意味着什么？",
+    "你有没有一个看似简单但其实很难坚持的目标？",
+    "如果可以瞬间精通一门外语，你选哪种？",
+    "你认为现代人最容易忽视的事情是什么？",
+]
 
 
 @register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.2.0")
@@ -83,12 +115,10 @@ class GroupActivityPlugin(Star):
         return {"groups": {}}
 
     def _save(self):
-        """防抖保存：标记脏数据，间隔内最多写一次磁盘"""
-        now = time.time()
-        if now - self._last_save >= self._save_interval:
+        """防抖保存：先标记脏数据，达到间隔则立即刷盘"""
+        self._dirty = True  # 先标记，确保写入失败时 loop 仍会重试
+        if time.time() - self._last_save >= self._save_interval:
             self._force_save()
-        else:
-            self._dirty = True
 
     def _force_save(self):
         """立即写入磁盘"""
@@ -129,6 +159,7 @@ class GroupActivityPlugin(Star):
     def _mode(self): return "白名单模式" if self._wl() else "全局模式"
 
     def _dur(self, s):
+        s = max(0, int(s))
         if s < 60: return "刚刚"
         if s < 3600: return f"{s//60}分钟前"
         if s < 86400: return f"{s//3600}小时前"
@@ -310,6 +341,19 @@ class GroupActivityPlugin(Star):
             if at_bot and msg.strip():
                 asyncio.create_task(self._appeal(event, gid, sid, nick, msg, warned))
         if warned: logger.info(f"群{gid} {nick}({sid}) 响应警告")
+
+        # 每日一问 AI 互动：引用了今日话题消息，通过 bot client 发送 @回复（支持 CQ 码）
+        # 用 create_task 异步发送，on_msg 本身不 yield，避免 plain_result 把 CQ 码变成字面文字
+        if self.config.get("ai_enabled") and not _is_new:
+            today_topic = gd.get("daily_topics", {}).get(today)
+            if today_topic and today_topic.get("msg_id"):
+                replied_mid = self._get_reply_id(event)
+                if replied_mid and str(replied_mid) == str(today_topic["msg_id"]):
+                    asyncio.create_task(self._ai_topic_reply(
+                        gid, sid, nick, today_topic["topic"],
+                        event.message_str or "", event.unified_msg_origin,
+                    ))
+
         self._save()
 
     async def _appeal(self, event, gid, sid, nick, reason, wa):
@@ -331,14 +375,24 @@ class GroupActivityPlugin(Star):
         msg_ctx = f"，他/她刚才说：「{msg_text[:60]}」" if msg_text.strip() else ""
         if style == "AI生成":
             if self.config.get("ai_enabled"):
-                r = await self._ai(
-                    f"群{group_ctx}里有新成员「{display}」刚刚第一次发言{msg_ctx}。"
-                    f"请用当前人设生成一段幽默温暖的欢迎语（60字以内），"
-                    f"可以适当接话或调侃他/她说的内容，最后提一个轻松有趣的破冰问题。"
-                    f"直接输出文案，不要在开头重复对方名字或加「@」前缀。",
-                    self._persona(), umo
-                )
-                msg = r.strip()[:300] if r else fallback
+                try:
+                    r = await asyncio.wait_for(
+                        self._ai(
+                            f"群{group_ctx}里有新成员「{display}」刚刚第一次发言{msg_ctx}。"
+                            f"请用当前人设生成一段幽默温暖的欢迎语（60字以内），"
+                            f"可以适当接话或调侃他/她说的内容，最后提一个轻松有趣的破冰问题。"
+                            f"直接输出文案，不要在开头重复对方名字或加「@」前缀。",
+                            self._persona(), umo
+                        ),
+                        timeout=20.0,
+                    )
+                    msg = r.strip()[:300] if r else fallback
+                except asyncio.TimeoutError:
+                    logger.warning(f"入群欢迎AI超时（>20s），使用备用模板（群{gid}）")
+                    msg = fallback
+                except Exception as e:
+                    logger.warning(f"入群欢迎AI失败: {e}")
+                    msg = fallback
             else:
                 msg = fallback
         elif style in WELCOME_TEMPLATES:
@@ -355,6 +409,24 @@ class GroupActivityPlugin(Star):
                     message=f"[CQ:at,qq={sid}] {msg}")
         except Exception as e:
             logger.warning(f"入群欢迎失败(群{gid}): {e}")
+
+    # ==================== 每日一问 ====================
+
+    async def _gen_topic(self, group_name="", umo=None):
+        """生成每日话题，优先 AI，降级到预设列表。返回 (topic_str, is_ai)。"""
+        if self.config.get("ai_enabled"):
+            group_ctx = f"「{group_name}」" if group_name else "本群"
+            r = await self._ai(
+                f"请为{group_ctx}群聊生成一个今日讨论话题。"
+                f"要求：一句话，轻松有趣，能引发大家分享和讨论，与当前人设相符。"
+                f"只输出问题本身，不超过50字，不加序号。",
+                self._persona(), umo
+            )
+            if r:
+                return r.strip()[:200], True
+        # 按日期确定性地选取，同一天所有群看到不同题（用 group 哈希偏移）
+        day_idx = datetime.date.today().timetuple().tm_yday
+        return DAILY_TOPICS[day_idx % len(DAILY_TOPICS)], False
 
     # ==================== 打卡 ====================
 
@@ -385,6 +457,9 @@ class GroupActivityPlugin(Star):
         last_weekly_date = ""
         last_cleanup = ""
         last_check_ts = 0.0   # 上次执行活跃检测的时间戳
+        last_topic_date = ""
+        last_topic_hour = -1  # 记录上次触发时的配置时间，用于检测时间改变
+        last_topic_min  = -1
         while True:
             try:
                 # 刷盘：如果有脏数据则立即写入
@@ -415,6 +490,22 @@ class GroupActivityPlugin(Star):
                     if past_target:
                         await self._send_auto_weekly()
                         last_weekly_date = today
+
+                # 每日一问自动发送
+                # last_topic_date 防止同一配置时间重复触发；
+                # 若用户更改了发送时间（th/tm 变化），重置 last_topic_date
+                # 以便新时间到达后重新触发（幂等由 _send_auto_topic 内部 msg_id 保证）
+                if self.config.get("auto_topic") and self._is_topic_day():
+                    th, tm = self._topic_time()
+                    now_dt = datetime.datetime.now()
+                    past_target = now_dt.hour > th or (now_dt.hour == th and now_dt.minute >= tm)
+                    if (th, tm) != (last_topic_hour, last_topic_min):
+                        # 配置时间改变，清除日期锁
+                        last_topic_date = ""
+                        last_topic_hour, last_topic_min = th, tm
+                    if past_target and last_topic_date != today:
+                        await self._send_auto_topic()
+                        last_topic_date = today
 
             except asyncio.CancelledError: break
             except Exception as e: logger.error(f"定时任务出错: {e}")
@@ -453,6 +544,142 @@ class GroupActivityPlugin(Star):
         h = self.config.get("auto_weekly_hour", 20)
         return (int(h), 0) if h is not None else (20, 0)
 
+    def _is_topic_day(self):
+        day = self.config.get("auto_topic_day", "每天")
+        if day == "每天": return True
+        day_map = {"周一":0,"周二":1,"周三":2,"周四":3,"周五":4,"周六":5,"周日":6}
+        return datetime.date.today().weekday() == day_map.get(day, 0)
+
+    def _topic_time(self):
+        """解析每日一问发送时间，返回 (hour, minute)。"""
+        t = self.config.get("auto_topic_time", "09:00")
+        if t and ":" in str(t):
+            try:
+                parts = str(t).split(":")
+                return int(parts[0]), int(parts[1])
+            except: pass
+        return 9, 0
+
+    async def _send_auto_topic(self):
+        """定时自动向所有监控群发送每日一问，并记录消息 ID 以便 AI 回复。"""
+        cl = await self._cli()
+        if not cl:
+            logger.warning("每日一问自动发送: 未获取到 bot 客户端，跳过")
+            return
+        targets = [g for g in await self._target_groups(cl) if self._mon(g)]
+        if not targets:
+            logger.info("每日一问自动发送: 无监控群，跳过")
+            return
+        today = datetime.date.today().isoformat()
+        for gid in targets:
+            gd = self.activity_data.setdefault("groups", {}).setdefault(gid, {})
+            existing = gd.get("daily_topics", {}).get(today)
+            # 今日已成功发送（有 msg_id）则跳过
+            if existing and existing.get("msg_id"):
+                logger.debug(f"每日一问今日已发送，跳过群{gid}")
+                continue
+            group_name = gd.get("group_name", "")
+            # 重试场景：上次发送失败但话题已生成，直接复用，避免每次重试都生成不同话题
+            if existing and existing.get("topic"):
+                topic, is_ai = existing["topic"], existing.get("is_ai", False)
+            else:
+                topic, is_ai = await self._gen_topic(group_name)
+                # 先缓存话题（无 msg_id），发送失败重试时直接用
+                gd.setdefault("daily_topics", {})[today] = {"topic": topic, "is_ai": is_ai, "msg_id": None}
+                self._save()
+            img_result = None
+            try:
+                img_result = await asyncio.wait_for(
+                    self._img(T.TOPIC, {"topic": topic, "date": today,
+                                        "group_name": group_name, "is_ai": is_ai}, gid=gid),
+                    timeout=60
+                )
+            except Exception as e:
+                logger.error(f"每日一问渲染失败(群{gid}): {e}")
+
+            sent_msg_id = None
+            if img_result:
+                sent_msg_id = await self._send_topic_img(cl, gid, img_result, topic)
+            # 图片渲染失败 或 图片发送失败（URL被NTQQ拒绝等），统一降级为文字发送
+            if not sent_msg_id:
+                try:
+                    resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                    message=f"💬 今日一问\n\n{topic}")
+                    if isinstance(resp, dict):
+                        sent_msg_id = resp.get("message_id")
+                    logger.info(f"每日一问文字降级发送成功(群{gid})")
+                except Exception as e:
+                    logger.error(f"每日一问文字降级发送失败(群{gid}): {e}")
+
+            gd.setdefault("daily_topics", {})[today] = {
+                "topic": topic, "is_ai": is_ai,
+                "msg_id": str(sent_msg_id) if sent_msg_id is not None else None,
+            }
+            self._save()
+            logger.info(f"每日一问已发送到群{gid}，msg_id={sent_msg_id}")
+
+    async def _send_topic_img(self, cl, gid, img_result, fallback_text):
+        """发送话题图片，返回成功发送的 message_id 或 None。"""
+        # URL 形式
+        if isinstance(img_result, str):
+            try:
+                resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                message=[{"type": "image", "data": {"file": img_result}}])
+                return resp.get("message_id") if isinstance(resp, dict) else None
+            except Exception as e:
+                logger.warning(f"每日一问图片(URL)发送失败(群{gid}): {e}")
+
+        # bytes 形式：base64 → 文件 → CQ 码 三级降级
+        if isinstance(img_result, bytes):
+            for attempt, mk_msg in enumerate([
+                lambda b: [{"type": "image", "data": {"file": f"base64://{base64.b64encode(b).decode()}"}}],
+                lambda b: f"[CQ:image,file=base64://{base64.b64encode(b).decode()}]",
+            ]):
+                try:
+                    resp = await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                                    message=mk_msg(img_result))
+                    return resp.get("message_id") if isinstance(resp, dict) else None
+                except Exception as e:
+                    logger.warning(f"每日一问图片发送失败(attempt {attempt}, 群{gid}): {e}")
+        return None
+
+    @staticmethod
+    def _get_reply_id(event):
+        """从消息事件中提取被引用的消息 ID，无引用则返回 None。"""
+        for seg in (event.message_obj.message or []):
+            # dict 形式（原始 OneBot 段）
+            if isinstance(seg, dict) and seg.get("type") == "reply":
+                mid = seg.get("data", {}).get("id")
+                if mid: return str(mid)
+            # 对象形式（AstrBot 封装）
+            t = getattr(seg, "type", None) or getattr(type(seg), "__name__", "")
+            if "reply" in str(t).lower():
+                mid = getattr(seg, "id", None) or getattr(seg, "message_id", None)
+                if mid: return str(mid)
+        # 兜底：解析 message_str 中的 CQ 码
+        m = re.search(r'\[CQ:reply,id=(-?\d+)\]', event.message_str or "")
+        return m.group(1) if m else None
+
+    async def _ai_topic_reply(self, gid, sid, nick, topic, user_msg, umo=None):
+        """对引用每日一问并作答的成员进行 AI @ 回复。"""
+        # 去除消息中的 CQ 码，只保留文字部分
+        clean = re.sub(r'\[CQ:[^\]]+\]', '', user_msg).strip()
+        if not clean: return
+        r = await self._ai(
+            f"每日话题问题是「{topic}」，群友「{nick}」的回答是：「{clean[:150]}」。"
+            f"请用当前人设对ta的回答做出简短有趣的回应（50字以内），"
+            f"可以赞同、调侃或追问，不要重复问题原文，不要加@前缀。",
+            self._persona(), umo
+        )
+        if not r: return
+        try:
+            cl = await self._cli()
+            if cl:
+                await cl.api.call_action("send_group_msg", group_id=int(gid),
+                                         message=f"[CQ:at,qq={sid}] {r.strip()[:200]}")
+        except Exception as e:
+            logger.warning(f"每日一问AI回复失败(群{gid}): {e}")
+
     async def _target_groups(self, cl):
         """获取需要监控的群列表"""
         wl, bl = self._wl(), self._bl()
@@ -469,7 +696,7 @@ class GroupActivityPlugin(Star):
         if not cl:
             logger.warning("自动周报: 未获取到bot客户端，跳过")
             return
-        targets = await self._target_groups(cl)
+        targets = [g for g in await self._target_groups(cl) if self._mon(g)]
         if not targets:
             logger.info("自动周报: 无监控群，跳过")
             return
@@ -588,7 +815,11 @@ class GroupActivityPlugin(Star):
         if not ml: return
         if gid not in self.activity_data["groups"]:
             self.activity_data["groups"][gid] = {"members": {}}
-        md = self.activity_data["groups"][gid]["members"]; wc=kc=0
+        gd_check = self.activity_data["groups"][gid]
+        gd_check.setdefault("daily_stats", {})
+        gd_check.setdefault("hourly_stats", {})
+        gd_check.setdefault("daily_checkins", {})
+        md = gd_check["members"]; wc=kc=0
         # 清理已不在群里的成员（手动踢出、主动退群等）
         current_uids = {str(m.get("user_id", "")) for m in ml}
         departed = [uid for uid in list(md) if uid not in current_uids]
@@ -602,7 +833,12 @@ class GroupActivityPlugin(Star):
             nick = m.get("card") or m.get("nickname") or uid
             pls, jt = m.get("last_sent_time",0), m.get("join_time",now)
             if uid not in md:
-                md[uid] = {"last_active": pls if pls>0 else jt, "warned_at": None, "nickname": nick, "join_time": jt, "role": role}
+                md[uid] = {"last_active": pls if pls>0 else jt, "warned_at": None, "nickname": nick,
+                           "join_time": jt, "role": role, "streak": 0, "last_active_date": ""}
+                # 最近1小时内入群的新成员：标记待欢迎。
+                # 防止 _check 比首次发言先跑导致 on_msg 里 `not old` 为 False 而漏掉欢迎。
+                if jt > now - 3600 and uid != (self._bot_self_id or ""):
+                    self._welcome_pending.add((gid, uid))
             else:
                 ud=md[uid]; ud["nickname"]=nick; ud["role"]=role
                 if pls > ud.get("last_active",0): ud["last_active"]=pls; ud["warned_at"]=None
@@ -956,6 +1192,337 @@ class GroupActivityPlugin(Star):
             }, gid=gid))
         except Exception as e:
             logger.error(f"打卡榜渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
+
+    # ==================== 活跃评分 ====================
+
+    @staticmethod
+    def _calc_score(gd: dict) -> dict:
+        """计算群活跃综合评分，返回分项得分和总分信息。"""
+        today = datetime.date.today()
+        ms = gd.get("members", {})
+        daily = gd.get("daily_stats", {})
+        checkins = gd.get("daily_checkins", {})
+        total_members = len(ms)
+
+        # ── 维度1：近7天日均发言量（35分）────────────────────────────
+        days7 = [(today - datetime.timedelta(days=i)).isoformat() for i in range(7)]
+        msgs7 = [daily.get(d, 0) for d in days7]
+        avg7 = sum(msgs7) / 7
+        # 参考基准：日均 50 条视为满分，线性映射
+        score_msg = min(35, int(avg7 / 50 * 35))
+
+        # ── 维度2：活跃成员占比（25分）──────────────────────────────
+        if total_members > 0:
+            active_uids = set()
+            for d in days7:
+                active_uids.update(checkins.get(d, []))
+            active_ratio = len(active_uids) / total_members
+            score_active = min(25, int(active_ratio * 25))
+        else:
+            score_active = 0
+
+        # ── 维度3：连续打卡率（20分）────────────────────────────────
+        if total_members > 0:
+            streak3 = sum(1 for m in ms.values() if m.get("streak", 0) >= 3)
+            score_streak = min(20, int(streak3 / total_members * 20))
+        else:
+            score_streak = 0
+
+        # ── 维度4：成员健康度（20分）────────────────────────────────
+        warned = sum(1 for m in ms.values() if m.get("warned_at"))
+        warn_ratio = warned / total_members if total_members > 0 else 0
+        score_health = max(0, 20 - int(warn_ratio * 40))  # 每 2.5% 警告率扣 1 分
+
+        total = score_msg + score_active + score_streak + score_health
+
+        _GRADE_COLOR = {"S": "#f5a623", "A": "#e74c3c", "B": "#2ecc71", "C": "#3498db", "D": "#95a5a6"}
+        if total >= 90:   grade, label, icon = "S", "传说级活跃群", "🏆"
+        elif total >= 75: grade, label, icon = "A", "高度活跃",    "🔥"
+        elif total >= 60: grade, label, icon = "B", "正常活跃",    "⚡"
+        elif total >= 45: grade, label, icon = "C", "有些沉寂",    "😴"
+        else:             grade, label, icon = "D", "需要振兴",    "💤"
+
+        return {
+            "total": total,
+            "grade": grade, "label": label, "icon": icon,
+            "grade_color": _GRADE_COLOR[grade],
+            "dims": [
+                {"name": "日均发言量", "score": score_msg,    "max": 35,
+                 "pct": score_msg * 100 // 35},
+                {"name": "活跃成员占比", "score": score_active, "max": 25,
+                 "pct": score_active * 100 // 25},
+                {"name": "连续打卡率",  "score": score_streak, "max": 20,
+                 "pct": score_streak * 100 // 20},
+                {"name": "成员健康度",  "score": score_health, "max": 20,
+                 "pct": score_health * 100 // 20},
+            ],
+            "total_members": total_members,
+            "msgs7": sum(msgs7),
+            "avg7": round(avg7, 1),
+        }
+
+    @filter.command("活跃评分")
+    async def cmd_score(self, event: AstrMessageEvent):
+        """群活跃综合评分卡"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        gd = self.activity_data.get("groups", {}).get(gid, {})
+        score_data = self._calc_score(gd)
+        score_data["date"] = datetime.date.today().isoformat()
+        score_data["group_name"] = gd.get("group_name", "")
+        try:
+            yield event.image_result(await self._img(T.SCORE, score_data, gid=gid))
+        except Exception as e:
+            logger.error(f"评分卡渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
+
+    @filter.command("每日一问")
+    async def cmd_daily_topic(self, event: AstrMessageEvent):
+        """每日话题发起——AI 生成或从预设中选取"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        gs = self.activity_data.setdefault("groups", {}).setdefault(gid, {})
+        today = datetime.date.today().isoformat()
+        cached = gs.get("daily_topics", {}).get(today)
+        if cached:
+            topic, is_ai = cached["topic"], cached.get("is_ai", False)
+        else:
+            group_name = gs.get("group_name", "")
+            topic, is_ai = await self._gen_topic(group_name, event.unified_msg_origin)
+            gs.setdefault("daily_topics", {})[today] = {"topic": topic, "is_ai": is_ai}
+            self._save()
+        try:
+            yield event.image_result(await self._img(T.TOPIC, {
+                "topic": topic,
+                "date": today,
+                "group_name": gs.get("group_name", ""),
+                "is_ai": is_ai,
+            }, gid=gid))
+        except Exception as e:
+            logger.error(f"每日一问渲染失败: {e}"); yield event.plain_result(f"💬 今日一问\n\n{topic}")
+
+    # ==================== 群氛围预警 ====================
+
+    @staticmethod
+    def _calc_vibe(gid: str, activity_data: dict) -> dict:
+        """
+        计算群氛围指标，比较近7天 vs 上7天。
+        返回包含状态、指标、异常信号、图表数据的字典。
+        """
+        today = datetime.date.today()
+        ms = activity_data.get("groups", {}).get(gid, {}).get("members", {})
+        ds = activity_data.get("groups", {}).get(gid, {}).get("daily_stats", {})
+        total = len(ms)
+
+        # 本周/上周日期范围
+        this_days = [(today - datetime.timedelta(days=i)).isoformat() for i in range(7)]
+        last_days = [(today - datetime.timedelta(days=7+i)).isoformat() for i in range(7)]
+
+        this_msgs = sum(ds.get(d, 0) for d in this_days)
+        last_msgs = sum(ds.get(d, 0) for d in last_days)
+
+        # 活跃人数：本周/上周各有多少人发过言（daily_stats 只有总量，用 members 的 last_active_date 近似）
+        now_ts = int(time.time())
+        this_start = (today - datetime.timedelta(days=6)).isoformat()
+        last_start = (today - datetime.timedelta(days=13)).isoformat()
+        last_end   = (today - datetime.timedelta(days=7)).isoformat()
+
+        this_active_set = {
+            uid for uid, d in ms.items()
+            if d.get("last_active_date", "") >= this_start
+        }
+        last_active_set = {
+            uid for uid, d in ms.items()
+            if last_start <= d.get("last_active_date", "") <= last_end
+        }
+        this_active = len(this_active_set)
+        last_active = len(last_active_set)
+
+        # 沉默率：本周/上周未发言人数 / 总人数
+        def _silent_pct(active_cnt):
+            return round((total - active_cnt) / max(total, 1) * 100)
+
+        this_silent = _silent_pct(this_active)
+        last_silent = _silent_pct(last_active)
+
+        # 变化百分比（防除零）
+        def _delta_pct(cur, prev):
+            if prev == 0:
+                return 100 if cur > 0 else 0
+            return round((cur - prev) / prev * 100)
+
+        msg_delta    = _delta_pct(this_msgs, last_msgs)
+        active_delta = _delta_pct(this_active, last_active)
+        silent_delta = this_silent - last_silent   # 百分点差
+
+        # 异常信号检测
+        signals = []
+        _RED  = "#ff3b30"
+        _ORG  = "#ff9500"
+        _GRN  = "#34c759"
+        _BLU  = "#007aff"
+
+        if this_msgs == 0 and last_msgs > 0:
+            signals.append({"icon": "🚨", "color": _RED,
+                "title": "群聊完全冷场",
+                "desc": f"本周 0 条消息，上周还有 {last_msgs} 条"})
+        elif msg_delta <= -50:
+            signals.append({"icon": "📉", "color": _RED,
+                "title": f"消息量骤降 {abs(msg_delta)}%",
+                "desc": f"本周 {this_msgs} 条，较上周大幅减少"})
+        elif msg_delta <= -25:
+            signals.append({"icon": "⬇️", "color": _ORG,
+                "title": f"消息量下滑 {abs(msg_delta)}%",
+                "desc": "群活跃度持续走低，建议及时干预"})
+        elif msg_delta >= 200:
+            signals.append({"icon": "📈", "color": _BLU,
+                "title": f"消息量暴增 +{msg_delta}%",
+                "desc": "活跃度异常飙升，可能有热点话题或争议"})
+
+        if this_silent >= 80:
+            signals.append({"icon": "😶", "color": _RED,
+                "title": f"沉默率过高（{this_silent}%）",
+                "desc": f"超过 {this_silent}% 的成员本周没有发言"})
+        elif this_silent >= 60 and silent_delta >= 10:
+            signals.append({"icon": "🤐", "color": _ORG,
+                "title": f"沉默率上升 +{silent_delta}pt",
+                "desc": "越来越多的成员停止发言"})
+
+        if active_delta <= -40 and last_active >= 3:
+            signals.append({"icon": "👋", "color": _ORG,
+                "title": f"活跃人数骤减 {abs(active_delta)}%",
+                "desc": f"本周 {this_active} 人活跃，较上周 {last_active} 人明显减少"})
+
+        if not signals and msg_delta >= 0 and this_silent < 50:
+            signals.append({"icon": "✅", "color": _GRN,
+                "title": "群氛围良好",
+                "desc": "消息量稳定，活跃度正常，无需担心"})
+
+        # 总体状态
+        danger_count = sum(1 for s in signals if s["color"] == _RED)
+        warn_count   = sum(1 for s in signals if s["color"] == _ORG)
+        if danger_count >= 1 or (this_msgs == 0 and total > 0):
+            status = "danger"
+            status_icon, status_label = "🔴", "群氛围危险"
+            status_desc = "检测到严重异常，建议立即采取行动"
+            status_color, status_bg = _RED, "#fff0f0"
+        elif warn_count >= 1:
+            status = "warning"
+            status_icon, status_label = "🟡", "群氛围预警"
+            status_desc = "存在潜在风险，建议适时组织话题活跃群聊"
+            status_color, status_bg = _ORG, "#fff8e6"
+        elif msg_delta >= 50:
+            status = "boom"
+            status_icon, status_label = "🔥", "群氛围高涨"
+            status_desc = "活跃度异常高，关注是否有争议或热点"
+            status_color, status_bg = _BLU, "#eef6ff"
+        else:
+            status = "ok"
+            status_icon, status_label = "🟢", "群氛围正常"
+            status_desc = "一切正常，继续保持"
+            status_color, status_bg = _GRN, "#f0fff4"
+
+        # 指标颜色
+        def _msg_color(d):
+            if d <= -50: return _RED
+            if d <= -25: return _ORG
+            if d >= 100: return _BLU
+            return "#333"
+
+        # 近 14 天图表（高度以像素预计算，避免 CSS % 在 flex 容器中失效）
+        _CHART_H = 90   # 图表区高度（px）
+        all14 = [(today - datetime.timedelta(days=13-i)).isoformat() for i in range(14)]
+        vals14 = [ds.get(d, 0) for d in all14]
+        mx = max(vals14) if any(v > 0 for v in vals14) else 1
+        chart = []
+        split = (today - datetime.timedelta(days=7)).isoformat()
+        for i, (d, v) in enumerate(zip(all14, vals14)):
+            is_this_week = d > split
+            if v > 0:
+                color = "#43e97b" if is_this_week else "#7eb8ff"
+                height_px = max(6, round(v / mx * _CHART_H))
+            else:
+                color = "#e0e0e0"
+                height_px = 3
+            chart.append({
+                "label": d[8:],          # 日期（月/日）
+                "count": v,              # 实际消息数
+                "height_px": height_px,  # 像素高度
+                "color": color,
+                "is_this_week": is_this_week,
+                "highlight": (i % 7 == 0),
+            })
+
+        # 日期范围文字
+        date_range = f"{last_days[-1][5:]} ~ {this_days[0][5:]}"
+
+        return {
+            "group_name": activity_data.get("groups", {}).get(gid, {}).get("group_name", ""),
+            "date_range": date_range,
+            "total_members": total,
+            "this_week_msgs": this_msgs,
+            "last_week_msgs": last_msgs,
+            "msg_delta": msg_delta,
+            "msg_color": _msg_color(msg_delta),
+            "this_week_active": this_active,
+            "last_week_active": last_active,
+            "active_delta": active_delta,
+            "active_color": _msg_color(active_delta),
+            "this_silent": this_silent,
+            "last_week_silent": last_silent,
+            "silent_pct": this_silent,
+            "silent_delta": silent_delta,
+            "silent_color": _RED if this_silent >= 80 else (_ORG if this_silent >= 60 else "#333"),
+            "status": status,
+            "status_icon": status_icon,
+            "status_label": status_label,
+            "status_desc": status_desc,
+            "status_color": status_color,
+            "status_bg": status_bg,
+            "signals": signals,
+            "chart": chart,
+            "suggestion": "",   # filled by AI if available
+        }
+
+    @filter.command("群氛围")
+    async def cmd_vibe(self, event: AstrMessageEvent):
+        """群氛围异常预警——对比近7天 vs 上7天，检测冷场/骤降/沉默等异常"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        if not self.activity_data.get("groups", {}).get(gid, {}).get("members"):
+            yield event.plain_result("暂无活跃数据，请先等待成员发言。"); return
+
+        data = self._calc_vibe(gid, self.activity_data)
+        data["now"] = time.strftime("%Y-%m-%d %H:%M")
+
+        # AI 建议（等待生成完成后一并渲染进图片）
+        if self.config.get("ai_enabled"):
+            try:
+                prompt = (
+                    f"群「{data['group_name'] or '当前群'}」最近7天消息{data['this_week_msgs']}条"
+                    f"（上周{data['last_week_msgs']}条，变化{data['msg_delta']:+d}%），"
+                    f"活跃{data['this_week_active']}人（上周{data['last_week_active']}人），"
+                    f"沉默率{data['silent_pct']}%。"
+                    f"当前状态：{data['status_label']}。"
+                    f"请用当前人设给出一条简短（60字以内）的群运营建议，幽默自然。"
+                )
+                r = await self._ai(prompt, self._persona(), event.unified_msg_origin)
+                if r: data["suggestion"] = r.strip()[:200]
+            except Exception as e:
+                logger.warning(f"群氛围AI建议失败: {e}")
+
+        try:
+            yield event.image_result(await self._img(T.VIBE, data, gid=gid))
+        except Exception as e:
+            logger.error(f"群氛围渲染失败: {e}")
+            sig_text = "、".join(s["title"] for s in data["signals"][:3])
+            yield event.plain_result(
+                f"🌡️ 群氛围报告\n\n"
+                f"状态：{data['status_icon']} {data['status_label']}\n"
+                f"本周消息：{data['this_week_msgs']} 条（{data['msg_delta']:+d}%）\n"
+                f"活跃人数：{data['this_week_active']} 人\n"
+                f"沉默率：{data['silent_pct']}%\n"
+                f"信号：{sig_text or '无异常'}"
+            )
 
     @filter.command("手动检测")
     @filter.permission_type(filter.PermissionType.ADMIN)
