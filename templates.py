@@ -288,21 +288,46 @@ def VIBE(th):
 
 <!-- 每日消息量迷你图 -->
 <div class="sec">📊 最近 14 天消息走势</div>
-<div style="margin:0 16px 10px;background:#f8f9fb;border-radius:12px;padding:14px 12px">
-  <div style="display:flex;align-items:flex-end;gap:3px;height:60px">
+<div style="margin:0 16px 10px;background:#f8f9fb;border-radius:12px;padding:14px 12px 10px">
+
+  <!-- 消息数标签行（高活跃日显示数值）-->
+  <div style="display:flex;gap:4px;height:16px;margin-bottom:3px">
     {{% for d in chart %}}
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-      <div style="width:100%;border-radius:3px 3px 0 0;background:{{{{ d.color }}}};height:{{{{ d.pct }}}}%;min-height:3px;transition:height .3s"></div>
+    <div style="flex:1;text-align:center;font-size:.5rem;line-height:16px;
+         color:{{% if d.is_this_week %}}#2a9a56{{% else %}}#5b87cc{{% endif %}};font-weight:700">
+      {{% if d.count > 0 %}}{{{{ d.count }}}}{{% endif %}}
     </div>
     {{% endfor %}}
   </div>
-  <div style="display:flex;gap:3px;margin-top:4px">
+
+  <!-- 柱状图（像素高度直接设置，align-items:flex-end 保证底部对齐）-->
+  <div style="display:flex;align-items:flex-end;gap:4px;height:90px;border-bottom:1px solid #e0e4e8">
     {{% for d in chart %}}
-    <div style="flex:1;text-align:center;font-size:.52rem;color:#bbb;
-         {{% if d.highlight %}}font-weight:700;color:#666;{{% endif %}}">
+    <div style="flex:1;background:{{{{ d.color }}}};border-radius:3px 3px 0 0;
+         height:{{{{ d.height_px }}}}px"></div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 日期标签 -->
+  <div style="display:flex;gap:4px;margin-top:5px">
+    {{% for d in chart %}}
+    <div style="flex:1;text-align:center;font-size:.52rem;
+         {{% if d.highlight %}}font-weight:800;color:#444;{{% else %}}color:#bbb;{{% endif %}}">
       {{{{ d.label }}}}
     </div>
     {{% endfor %}}
+  </div>
+
+  <!-- 图例 -->
+  <div style="display:flex;justify-content:flex-end;gap:14px;margin-top:8px">
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:#7eb8ff"></div>
+      <span style="font-size:.6rem;color:#999">上周</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:#43e97b"></div>
+      <span style="font-size:.6rem;color:#999">本周</span>
+    </div>
   </div>
 </div>
 

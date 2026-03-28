@@ -1410,21 +1410,27 @@ class GroupActivityPlugin(Star):
             if d >= 100: return _BLU
             return "#333"
 
-        # 近 14 天图表
+        # 近 14 天图表（高度以像素预计算，避免 CSS % 在 flex 容器中失效）
+        _CHART_H = 90   # 图表区高度（px）
         all14 = [(today - datetime.timedelta(days=13-i)).isoformat() for i in range(14)]
         vals14 = [ds.get(d, 0) for d in all14]
-        mx = max(vals14) if vals14 else 1
-        if mx == 0: mx = 1
+        mx = max(vals14) if any(v > 0 for v in vals14) else 1
         chart = []
         split = (today - datetime.timedelta(days=7)).isoformat()
         for i, (d, v) in enumerate(zip(all14, vals14)):
-            pct = max(4, round(v / mx * 100))
             is_this_week = d > split
-            color = ("#43e97b" if is_this_week else "#a0c4ff") if v > 0 else "#e8e8e8"
+            if v > 0:
+                color = "#43e97b" if is_this_week else "#7eb8ff"
+                height_px = max(6, round(v / mx * _CHART_H))
+            else:
+                color = "#e0e0e0"
+                height_px = 3
             chart.append({
-                "label": d[8:],   # day of month
-                "pct": pct,
+                "label": d[8:],          # 日期（月/日）
+                "count": v,              # 实际消息数
+                "height_px": height_px,  # 像素高度
                 "color": color,
+                "is_this_week": is_this_week,
                 "highlight": (i % 7 == 0),
             })
 
@@ -1470,7 +1476,7 @@ class GroupActivityPlugin(Star):
         data = self._calc_vibe(gid, self.activity_data)
         data["now"] = time.strftime("%Y-%m-%d %H:%M")
 
-        # AI 建议
+        # AI 建议（限时 12 秒，超时跳过，不阻塞主流程）
         if self.config.get("ai_enabled"):
             try:
                 prompt = (
@@ -1481,8 +1487,13 @@ class GroupActivityPlugin(Star):
                     f"当前状态：{data['status_label']}。"
                     f"请用当前人设给出一条简短（60字以内）的群运营建议，幽默自然。"
                 )
-                r = await self._ai(prompt, self._persona(), event.unified_msg_origin)
+                r = await asyncio.wait_for(
+                    self._ai(prompt, self._persona(), event.unified_msg_origin),
+                    timeout=12.0,
+                )
                 if r: data["suggestion"] = r.strip()[:200]
+            except asyncio.TimeoutError:
+                logger.warning("群氛围AI建议超时（>12s），跳过")
             except Exception as e:
                 logger.warning(f"群氛围AI建议失败: {e}")
 

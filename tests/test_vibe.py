@@ -156,6 +156,51 @@ class TestCalcVibeMetrics:
             assert len(entry["label"]) == 2  # e.g. "01", "28"
             assert entry["label"].isdigit()
 
+    def test_chart_entries_have_required_keys(self, plugin):
+        """Each chart entry contains height_px, count, color, label, highlight."""
+        import astrbot_plugin_group_activity.main as m
+        gid = "107"
+        _seed_daily_stats(plugin, gid, [(i, 10) for i in range(14)])
+        _seed_members(plugin, gid, [("1", datetime.date.today().isoformat())])
+
+        result = m.GroupActivityPlugin._calc_vibe(gid, plugin.activity_data)
+
+        for entry in result["chart"]:
+            assert "height_px" in entry
+            assert "count" in entry
+            assert "color" in entry
+            assert "label" in entry
+            assert "highlight" in entry
+
+    def test_chart_height_px_proportional_to_max(self, plugin):
+        """The day with the highest count gets the maximum height_px."""
+        import astrbot_plugin_group_activity.main as m
+        gid = "108"
+        # Today = max, all others much smaller
+        _seed_daily_stats(plugin, gid, [(0, 100), (1, 10), (2, 5)])
+        _seed_members(plugin, gid, [("1", datetime.date.today().isoformat())])
+
+        result = m.GroupActivityPlugin._calc_vibe(gid, plugin.activity_data)
+
+        heights = [e["height_px"] for e in result["chart"]]
+        max_height = max(heights)
+        # Today's bar should be tallest
+        assert result["chart"][-1]["height_px"] == max_height
+
+    def test_chart_zero_days_have_small_height(self, plugin):
+        """Days with 0 messages get a stub bar (height_px == 3)."""
+        import astrbot_plugin_group_activity.main as m
+        gid = "109"
+        # Only today has messages
+        _seed_daily_stats(plugin, gid, [(0, 50)])
+        _seed_members(plugin, gid, [("1", datetime.date.today().isoformat())])
+
+        result = m.GroupActivityPlugin._calc_vibe(gid, plugin.activity_data)
+
+        zero_entries = [e for e in result["chart"] if e["count"] == 0]
+        for entry in zero_entries:
+            assert entry["height_px"] == 3
+
 
 class TestCalcVibeSignals:
 
