@@ -392,3 +392,99 @@ class TestDepartedMemberCleanup:
         ud = plugin.activity_data["groups"][gid]["members"].get(uid)
         assert ud is not None
         assert "5002" not in plugin.activity_data["groups"][gid]["members"]
+
+
+# ── welcome_pending population in _check ──────────────────────────────────────
+
+class TestCheckWelcomePending:
+    """_check() must add genuinely-new members to _welcome_pending so that the
+    welcome fires even if _check runs before their first message."""
+
+    async def test_recent_new_member_added_to_welcome_pending(self, plugin):
+        """A member whose join_time is within the last hour gets added to
+        _welcome_pending when first seen by _check."""
+        import time
+        now = int(time.time())
+        gid = "60001"
+        # Member is brand-new (joined 5 minutes ago) and not yet in md
+        ml = [_make_ml_member(uid=7001, join_time=now - 300)]
+        cl = make_mock_client(member_list=ml)
+
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        assert (gid, "7001") in plugin._welcome_pending
+
+    async def test_old_member_not_added_to_welcome_pending(self, plugin):
+        """A member who joined 2 days ago is NOT added to _welcome_pending —
+        prevents spurious welcomes when the system sees them for the first time."""
+        import time
+        now = int(time.time())
+        gid = "60002"
+        ml = [_make_ml_member(uid=7002, join_time=now - 2 * 86400)]
+        cl = make_mock_client(member_list=ml)
+
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        assert (gid, "7002") not in plugin._welcome_pending
+
+    async def test_existing_member_not_added_to_welcome_pending(self, plugin):
+        """A member already tracked in md with the same join_time is not added to
+        _welcome_pending by the new-member path (only by the rejoin path)."""
+        import time
+        now = int(time.time())
+        gid = "60003"
+        uid = "7003"
+        old_join = now - 30 * 86400   # joined 30 days ago
+        # Store with same join_time the API will return → no rejoin detection
+        plugin.activity_data.setdefault("groups", {})[gid] = {
+            "members": {uid: {
+                "last_active": now - 86400, "warned_at": None, "nickname": "User7003",
+                "join_time": old_join, "role": "member", "streak": 0, "last_active_date": "",
+            }},
+            "daily_stats": {},
+        }
+        ml = [_make_ml_member(uid=int(uid), join_time=old_join)]
+        cl = make_mock_client(member_list=ml)
+
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        assert (gid, uid) not in plugin._welcome_pending
+
+    async def test_check_then_message_still_triggers_welcome(self, plugin):
+        """End-to-end: _check runs first (adds to welcome_pending), then
+        on_msg fires → _ai_welcome task is created."""
+        import time
+        import asyncio
+        from unittest.mock import patch
+        from helpers import make_mock_event, make_config
+        import astrbot_plugin_group_activity.main as m
+
+        cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
+        plugin2 = __import__("helpers", fromlist=["make_plugin"]).make_plugin(
+            config=cfg, tmp_path=plugin.data_file.parent
+        )
+
+        now = int(time.time())
+        gid = "60004"
+        uid = "7004"
+
+        # Step 1: _check detects new member and adds to welcome_pending
+        ml = [_make_ml_member(uid=int(uid), join_time=now - 120)]
+        cl = make_mock_client(member_list=ml)
+        await plugin2._check(cl, gid, **_check_params(plugin2))
+        assert (gid, uid) in plugin2._welcome_pending
+
+        # Step 2: member sends first message
+        event = make_mock_event(group_id=gid, sender_id=uid, sender_name="PAM")
+        created = []
+        with patch("asyncio.create_task",
+                   side_effect=lambda c, **kw: created.append(c) or MagicMock()):
+            await plugin2.on_msg(event)
+
+        for c in created:
+            if hasattr(c, "close"):
+                c.close()
+
+        welcome = [c for c in created if "_ai_welcome" in getattr(c, "__qualname__", "")]
+        assert len(welcome) >= 1
+        assert (gid, uid) not in plugin2._welcome_pending

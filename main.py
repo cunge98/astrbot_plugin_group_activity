@@ -821,6 +821,10 @@ class GroupActivityPlugin(Star):
             pls, jt = m.get("last_sent_time",0), m.get("join_time",now)
             if uid not in md:
                 md[uid] = {"last_active": pls if pls>0 else jt, "warned_at": None, "nickname": nick, "join_time": jt, "role": role}
+                # 最近1小时内入群的新成员：标记待欢迎。
+                # 防止 _check 比首次发言先跑导致 on_msg 里 `not old` 为 False 而漏掉欢迎。
+                if jt > now - 3600 and uid != (self._bot_self_id or ""):
+                    self._welcome_pending.add((gid, uid))
             else:
                 ud=md[uid]; ud["nickname"]=nick; ud["role"]=role
                 if pls > ud.get("last_active",0): ud["last_active"]=pls; ud["warned_at"]=None
