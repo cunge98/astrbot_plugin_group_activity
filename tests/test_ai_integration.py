@@ -4,6 +4,8 @@ Tests for AI integration helpers: _ai_warn, _ai_judge, _ai (gate).
 All LLM calls are mocked so these tests run without an actual AI provider.
 """
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock
 from astrbot_plugin_group_activity.main import FALLBACK, AI_PERSONAS
 

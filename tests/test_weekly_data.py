@@ -7,6 +7,8 @@ on the arithmetic and structural correctness of the returned dict.
 import time
 import datetime
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock
 
 

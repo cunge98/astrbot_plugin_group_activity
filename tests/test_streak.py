@@ -5,6 +5,8 @@ plus related message-tracking side effects.
 import time
 import datetime
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from helpers import make_mock_event
 
 

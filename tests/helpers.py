@@ -64,22 +64,25 @@ def make_plugin(config=None, tmp_path=None):
     context.get_platform = MagicMock(return_value=None)
 
     original_data_dir = m.DATA_DIR
-    if tmp_path is not None:
-        test_dir = Path(tmp_path) / "plugin_data"
-        test_dir.mkdir(parents=True, exist_ok=True)
-        m.DATA_DIR = test_dir
+    try:
+        if tmp_path is not None:
+            test_dir = Path(tmp_path) / "plugin_data"
+            test_dir.mkdir(parents=True, exist_ok=True)
+            m.DATA_DIR = test_dir
 
-    def _fake_create_task(coro, **kw):
-        # Close the coroutine immediately so it doesn't leak as unawaited
-        if hasattr(coro, "close"):
-            coro.close()
-        return MagicMock()
+        def _fake_create_task(coro, **kw):
+            # Close the coroutine immediately so it doesn't leak as unawaited
+            if hasattr(coro, "close"):
+                coro.close()
+            return MagicMock()
 
-    with patch("asyncio.create_task", side_effect=_fake_create_task):
-        plugin = m.GroupActivityPlugin(context, config)
+        with patch("asyncio.create_task", side_effect=_fake_create_task):
+            plugin = m.GroupActivityPlugin(context, config)
 
-    if tmp_path is not None:
-        plugin.data_file = Path(tmp_path) / "plugin_data" / "activity_data.json"
+        if tmp_path is not None:
+            plugin.data_file = Path(tmp_path) / "plugin_data" / "activity_data.json"
+    finally:
+        # 无论是否异常都恢复全局变量，防止测试间污染
         m.DATA_DIR = original_data_dir
 
     return plugin

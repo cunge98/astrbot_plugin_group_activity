@@ -11,6 +11,8 @@ State transitions under test
 """
 import time
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from helpers import make_mock_client
 
