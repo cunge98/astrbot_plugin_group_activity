@@ -87,7 +87,7 @@ def _css(theme_name="清新蓝"):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<!-- 字体优先使用本地系统字体，避免依赖外部网络资源 -->
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 html,body{{margin:0;padding:0;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;background:{t['bg']};-webkit-font-smoothing:antialiased}}

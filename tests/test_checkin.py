@@ -7,6 +7,8 @@ Tests for the check-in / sign-in feature:
 """
 import datetime
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from helpers import make_plugin, make_mock_event
 

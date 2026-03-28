@@ -83,7 +83,7 @@ DAILY_TOPICS = [
 ]
 
 
-@register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.2.0")
+@register("astrbot_plugin_group_activity", "Dalimao", "AI 驱动的群成员活跃度检测与管理插件", "2.3.0")
 class GroupActivityPlugin(Star):
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -263,7 +263,8 @@ class GroupActivityPlugin(Star):
         try:
             p = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
             if p: self._bot_client = p.get_client(); return self._bot_client
-        except: pass
+        except Exception as e:
+            logger.debug(f"获取bot客户端失败: {e}")
         return None
 
     # ==================== 消息追踪 ====================
@@ -279,7 +280,7 @@ class GroupActivityPlugin(Star):
                 if isinstance(event, AiocqhttpMessageEvent):
                     self._bot_client = event.bot
                     self._bot_self_id = str(event.message_obj.self_id)
-            except: pass
+            except Exception: pass
 
         if gid not in self.activity_data["groups"]:
             self.activity_data["groups"][gid] = {"members": {}, "daily_stats": {}}
@@ -289,7 +290,7 @@ class GroupActivityPlugin(Star):
         try:
             gname = getattr(event.message_obj, 'group_name', '') or ''
             if gname: gd["group_name"] = gname
-        except: pass
+        except Exception: pass
         now = int(time.time()); today = datetime.date.today().isoformat()
         old = ms.get(sid, {})
         warned = old.get("warned_at")
@@ -539,7 +540,7 @@ class GroupActivityPlugin(Star):
             try:
                 parts = str(t).split(":")
                 return int(parts[0]), int(parts[1])
-            except: pass
+            except (ValueError, IndexError): pass
         # 兼容旧配置
         h = self.config.get("auto_weekly_hour", 20)
         return (int(h), 0) if h is not None else (20, 0)
@@ -557,7 +558,7 @@ class GroupActivityPlugin(Star):
             try:
                 parts = str(t).split(":")
                 return int(parts[0]), int(parts[1])
-            except: pass
+            except (ValueError, IndexError): pass
         return 9, 0
 
     async def _send_auto_topic(self):
@@ -688,7 +689,7 @@ class GroupActivityPlugin(Star):
         try:
             gl = await cl.api.call_action("get_group_list")
             return [str(g.get("group_id","")) for g in gl if str(g.get("group_id","")) not in bl]
-        except: return []
+        except Exception as e: logger.warning(f"获取群列表失败: {e}"); return []
 
     async def _send_auto_weekly(self):
         """发送自动周报图片到所有监控群（四级降级：URL图片 → base64图片 → 文件图片 → 纯文字）"""
@@ -811,7 +812,7 @@ class GroupActivityPlugin(Star):
 
     async def _check(self, cl, gid, its, kh, ea, gts, now):
         try: ml = await cl.api.call_action("get_group_member_list", group_id=int(gid))
-        except: return
+        except Exception as e: logger.warning(f"获取群成员列表失败(群{gid}): {e}"); return
         if not ml: return
         if gid not in self.activity_data["groups"]:
             self.activity_data["groups"][gid] = {"members": {}}
@@ -921,7 +922,7 @@ class GroupActivityPlugin(Star):
         ai_comment = ""
         if self.config.get("ai_enabled") and tt > 0:
             try: ai_comment = await self._ai(f"用一句话（20字以内）点评这个群的状态：{tt}人追踪，{tw}人被警告。要幽默简短。", self._persona(), event.unified_msg_origin)
-            except: pass
+            except Exception as e: logger.warning(f"状态AI失败: {e}")
         try:
             yield event.image_result(await self._img(T.STATUS, {
                 "enabled": self.config.get("enabled",False), "mode": self._mode(),
@@ -984,7 +985,7 @@ class GroupActivityPlugin(Star):
         inact = sorted([{"n":self._nk(v.get("nickname",k),k),"d":(now-v.get("last_active",0))//86400,"w":bool(v.get("warned_at"))} for k,v in ms.items() if v.get("last_active",0)<thr], key=lambda x:x["d"], reverse=True)
         if not inact:
             try: yield event.image_result(await self._img(T.ALL_OK, {"th": idays}, gid=gid))
-            except: yield event.plain_result(f"🎉 没有超过{idays}天未发言的成员！")
+            except Exception: yield event.plain_result(f"🎉 没有超过{idays}天未发言的成员！")
             return
         try: yield event.image_result(await self._img(T.INACTIVE, {"ms": inact[:30], "th": idays, "total": len(inact)}, gid=gid))
         except Exception as e: logger.error(f"不活跃列表渲染失败: {e}"); yield event.plain_result("❌ 渲染失败。")
@@ -1055,7 +1056,7 @@ class GroupActivityPlugin(Star):
             try:
                 r = await self._ai(p, persona, umo)
                 return r.strip()[:60] if r else ""
-            except: return ""
+            except Exception: return ""
 
         ai = await asyncio.gather(*[_safe_ai(p) for p in prompts])
 
@@ -1531,7 +1532,7 @@ class GroupActivityPlugin(Star):
         gid = str(getattr(event.message_obj, "group_id", "") or "")
         if not self.config.get("enabled"):
             try: yield event.image_result(await self._img(T.RESULT, {"title":"功能未开启","sub":"请在 WebUI 开启全局开关","rows":[],"msg":"","c1":"#ff6b6b","c2":"#ee5a24"}, gid=gid))
-            except: yield event.plain_result("❌ 功能未开启。")
+            except Exception: yield event.plain_result("❌ 功能未开启。")
             return
         yield event.plain_result("正在执行活跃检测...")
         try:
@@ -1553,15 +1554,20 @@ class GroupActivityPlugin(Star):
         if not ml: yield event.plain_result("❌ 列表为空。"); return
         if gid not in self.activity_data["groups"]:
             self.activity_data["groups"][gid] = {"members": {}}
-        md=self.activity_data["groups"][gid]["members"]; now=int(time.time()); nc=0
+        gd_init = self.activity_data["groups"][gid]
+        gd_init.setdefault("daily_stats", {})
+        gd_init.setdefault("hourly_stats", {})
+        gd_init.setdefault("daily_checkins", {})
+        md=gd_init["members"]; now=int(time.time()); nc=0
         for m in ml:
             uid=str(m.get("user_id","")); nick=m.get("card") or m.get("nickname") or uid
             role=m.get("role","member"); ls=m.get("last_sent_time",0); jt=m.get("join_time",now)
             if uid in md: md[uid]["role"]=role; md[uid]["nickname"]=nick; continue
-            md[uid]={"last_active":ls if ls>0 else jt,"warned_at":None,"nickname":nick,"join_time":jt,"role":role}; nc+=1
+            md[uid]={"last_active":ls if ls>0 else jt,"warned_at":None,"nickname":nick,
+                     "join_time":jt,"role":role,"streak":0,"last_active_date":""}; nc+=1
         self._save()
         try: yield event.image_result(await self._img(T.RESULT, {"title":"✅ 初始化完成","sub":"","rows":[{"k":"群成员总数","v":f"{len(ml)}人"},{"k":"新增记录","v":f"{nc}条"},{"k":"已有记录","v":f"{len(md)-nc}条"}],"msg":"","c1":"#00b09b","c2":"#96c93d"}, gid=gid))
-        except: yield event.plain_result(f"✅ 完成！成员{len(ml)}，新增{nc}")
+        except Exception as e: logger.warning(f"初始化渲染失败: {e}"); yield event.plain_result(f"✅ 完成！成员{len(ml)}，新增{nc}")
 
     @filter.command("清除警告")
     @filter.permission_type(filter.PermissionType.ADMIN)
@@ -1576,13 +1582,13 @@ class GroupActivityPlugin(Star):
             if t not in ms: yield event.plain_result(f"❌ 未找到{t}。"); return
             ms[t]["warned_at"]=None; self._save(); nick=ms[t].get("nickname",t)
             try: yield event.image_result(await self._img(T.RESULT, {"title":"警告已清除","sub":nick,"rows":[],"msg":"该成员的警告已清除","c1":"#00b09b","c2":"#96c93d"}, gid=gid))
-            except: yield event.plain_result(f"✅ 已清除 {nick} 的警告。")
+            except Exception as e: logger.warning(f"清除警告渲染失败: {e}"); yield event.plain_result(f"✅ 已清除 {nick} 的警告。")
         else:
             c=sum(1 for v in ms.values() if v.get("warned_at"))
             for v in ms.values(): v["warned_at"]=None
             self._save()
             try: yield event.image_result(await self._img(T.RESULT, {"title":"批量清除完成","sub":"","rows":[{"k":"清除数量","v":f"{c}人"}],"msg":"","c1":"#00b09b","c2":"#96c93d"}, gid=gid))
-            except: yield event.plain_result(f"✅ 已清除{c}人的警告。")
+            except Exception as e: logger.warning(f"批量清除渲染失败: {e}"); yield event.plain_result(f"✅ 已清除{c}人的警告。")
 
     async def terminate(self):
         if hasattr(self,"_task") and self._task: self._task.cancel()
