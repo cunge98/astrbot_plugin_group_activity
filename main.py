@@ -376,14 +376,24 @@ class GroupActivityPlugin(Star):
         msg_ctx = f"，他/她刚才说：「{msg_text[:60]}」" if msg_text.strip() else ""
         if style == "AI生成":
             if self.config.get("ai_enabled"):
-                r = await self._ai(
-                    f"群{group_ctx}里有新成员「{display}」刚刚第一次发言{msg_ctx}。"
-                    f"请用当前人设生成一段幽默温暖的欢迎语（60字以内），"
-                    f"可以适当接话或调侃他/她说的内容，最后提一个轻松有趣的破冰问题。"
-                    f"直接输出文案，不要在开头重复对方名字或加「@」前缀。",
-                    self._persona(), umo
-                )
-                msg = r.strip()[:300] if r else fallback
+                try:
+                    r = await asyncio.wait_for(
+                        self._ai(
+                            f"群{group_ctx}里有新成员「{display}」刚刚第一次发言{msg_ctx}。"
+                            f"请用当前人设生成一段幽默温暖的欢迎语（60字以内），"
+                            f"可以适当接话或调侃他/她说的内容，最后提一个轻松有趣的破冰问题。"
+                            f"直接输出文案，不要在开头重复对方名字或加「@」前缀。",
+                            self._persona(), umo
+                        ),
+                        timeout=20.0,
+                    )
+                    msg = r.strip()[:300] if r else fallback
+                except asyncio.TimeoutError:
+                    logger.warning(f"入群欢迎AI超时（>20s），使用备用模板（群{gid}）")
+                    msg = fallback
+                except Exception as e:
+                    logger.warning(f"入群欢迎AI失败: {e}")
+                    msg = fallback
             else:
                 msg = fallback
         elif style in WELCOME_TEMPLATES:

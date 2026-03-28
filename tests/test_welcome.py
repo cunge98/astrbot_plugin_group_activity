@@ -332,3 +332,54 @@ class TestWelcomeAI:
         full_prompt = prompts_seen[0]
         assert "大家好！" in full_prompt
         assert "快乐群" in full_prompt
+
+    async def test_ai_timeout_uses_fallback_quickly(self, tmp_path):
+        """When AI call exceeds 20 s timeout, fallback template is used immediately."""
+        import asyncio
+        cfg = make_config(ai_welcome=True, welcome_style="AI生成", ai_enabled=True)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+
+        async def _slow_llm(*a, **kw):
+            await asyncio.sleep(999)  # simulates a very slow LLM
+
+        plugin.context.llm_generate = _slow_llm
+        plugin.context.get_current_chat_provider_id = AsyncMock(return_value="pid")
+
+        sent = []
+        async def _call_action(action, **kwargs):
+            if action == "send_group_msg":
+                sent.append(kwargs.get("message", ""))
+            return None
+        cl = MagicMock()
+        cl.api.call_action = _call_action
+        plugin._bot_client = cl
+
+        # Patch wait_for to raise TimeoutError immediately
+        with MagicMock() as m:
+            import unittest.mock as um
+            with um.patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                await plugin._ai_welcome("9020", "u1", "小明", umo="test_origin")
+
+        assert sent
+        assert "小明" in sent[0]  # fallback template with nickname
+
+    async def test_ai_exception_uses_fallback(self, tmp_path):
+        """When AI call raises an exception, fallback template is still sent."""
+        cfg = make_config(ai_welcome=True, welcome_style="AI生成", ai_enabled=True)
+        plugin = make_plugin(config=cfg, tmp_path=str(tmp_path))
+        plugin.context.get_current_chat_provider_id = AsyncMock(return_value="pid")
+        plugin.context.llm_generate = AsyncMock(side_effect=RuntimeError("LLM error"))
+
+        sent = []
+        async def _call_action(action, **kwargs):
+            if action == "send_group_msg":
+                sent.append(kwargs.get("message", ""))
+            return None
+        cl = MagicMock()
+        cl.api.call_action = _call_action
+        plugin._bot_client = cl
+
+        await plugin._ai_welcome("9021", "u1", "小明", umo="test_origin")
+
+        assert sent
+        assert "小明" in sent[0]
