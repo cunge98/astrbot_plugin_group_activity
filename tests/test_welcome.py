@@ -7,6 +7,8 @@ Tests for the AI welcome feature:
   - custom template {nickname} interpolation
 """
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from helpers import make_plugin, make_mock_event, make_config
 

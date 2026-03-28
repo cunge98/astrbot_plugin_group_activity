@@ -7,6 +7,8 @@ Tests for the _calc_score() static method and cmd_score command:
   - cmd_score renders image or falls back to plain text
 """
 import pytest
+
+pytestmark = pytest.mark.asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from helpers import make_plugin, make_mock_event, make_config

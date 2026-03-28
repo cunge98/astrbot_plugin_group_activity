@@ -9,6 +9,8 @@ Tests for the /每日一问 daily topic feature:
 """
 import datetime
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock, MagicMock
 from helpers import make_plugin, make_mock_event, make_config
 

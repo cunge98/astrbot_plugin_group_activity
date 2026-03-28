@@ -12,6 +12,8 @@ Tests for the /群氛围 (group vibe) feature:
 import datetime
 import time
 import pytest
+
+pytestmark = pytest.mark.asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from helpers import make_plugin, make_mock_event, make_config
 
