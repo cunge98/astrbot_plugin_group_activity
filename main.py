@@ -1476,7 +1476,7 @@ class GroupActivityPlugin(Star):
         data = self._calc_vibe(gid, self.activity_data)
         data["now"] = time.strftime("%Y-%m-%d %H:%M")
 
-        # AI 建议（限时 12 秒，超时跳过，不阻塞主流程）
+        # AI 建议（等待生成完成后一并渲染进图片）
         if self.config.get("ai_enabled"):
             try:
                 prompt = (
@@ -1487,13 +1487,8 @@ class GroupActivityPlugin(Star):
                     f"当前状态：{data['status_label']}。"
                     f"请用当前人设给出一条简短（60字以内）的群运营建议，幽默自然。"
                 )
-                r = await asyncio.wait_for(
-                    self._ai(prompt, self._persona(), event.unified_msg_origin),
-                    timeout=12.0,
-                )
+                r = await self._ai(prompt, self._persona(), event.unified_msg_origin)
                 if r: data["suggestion"] = r.strip()[:200]
-            except asyncio.TimeoutError:
-                logger.warning("群氛围AI建议超时（>12s），跳过")
             except Exception as e:
                 logger.warning(f"群氛围AI建议失败: {e}")
 
