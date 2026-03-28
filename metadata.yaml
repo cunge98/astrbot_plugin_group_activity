@@ -1,8 +1,8 @@
 name: astrbot_plugin_group_activity
 display_name: 群活跃检测 (AI增强)
-desc: AI 驱动的 QQ 群不活跃成员检测插件，自动警告并踢出长期潜水成员，支持 AI 拟人化警告、求生申诉、图文周报。
+desc: AI 驱动的 QQ 群活跃管理插件，支持不活跃检测/踢出、AI 拟人化警告、求生申诉、图文周报、群氛围指数、入群欢迎、打卡签到、热力图、每日话题等功能。
 author: Dalimao
-version: 2.1.0
+version: 2.3.0
 repo: "https://github.com/cunge98/astrbot_plugin_group_activity"
 support_platforms:
   - aiocqhttp
