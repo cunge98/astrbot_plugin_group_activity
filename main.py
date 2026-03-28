@@ -115,12 +115,10 @@ class GroupActivityPlugin(Star):
         return {"groups": {}}
 
     def _save(self):
-        """防抖保存：标记脏数据，间隔内最多写一次磁盘"""
-        now = time.time()
-        if now - self._last_save >= self._save_interval:
+        """防抖保存：先标记脏数据，达到间隔则立即刷盘"""
+        self._dirty = True  # 先标记，确保写入失败时 loop 仍会重试
+        if time.time() - self._last_save >= self._save_interval:
             self._force_save()
-        else:
-            self._dirty = True
 
     def _force_save(self):
         """立即写入磁盘"""
@@ -161,6 +159,7 @@ class GroupActivityPlugin(Star):
     def _mode(self): return "白名单模式" if self._wl() else "全局模式"
 
     def _dur(self, s):
+        s = max(0, int(s))
         if s < 60: return "刚刚"
         if s < 3600: return f"{s//60}分钟前"
         if s < 86400: return f"{s//3600}小时前"
@@ -816,7 +815,11 @@ class GroupActivityPlugin(Star):
         if not ml: return
         if gid not in self.activity_data["groups"]:
             self.activity_data["groups"][gid] = {"members": {}}
-        md = self.activity_data["groups"][gid]["members"]; wc=kc=0
+        gd_check = self.activity_data["groups"][gid]
+        gd_check.setdefault("daily_stats", {})
+        gd_check.setdefault("hourly_stats", {})
+        gd_check.setdefault("daily_checkins", {})
+        md = gd_check["members"]; wc=kc=0
         # 清理已不在群里的成员（手动踢出、主动退群等）
         current_uids = {str(m.get("user_id", "")) for m in ml}
         departed = [uid for uid in list(md) if uid not in current_uids]
@@ -830,7 +833,8 @@ class GroupActivityPlugin(Star):
             nick = m.get("card") or m.get("nickname") or uid
             pls, jt = m.get("last_sent_time",0), m.get("join_time",now)
             if uid not in md:
-                md[uid] = {"last_active": pls if pls>0 else jt, "warned_at": None, "nickname": nick, "join_time": jt, "role": role}
+                md[uid] = {"last_active": pls if pls>0 else jt, "warned_at": None, "nickname": nick,
+                           "join_time": jt, "role": role, "streak": 0, "last_active_date": ""}
                 # 最近1小时内入群的新成员：标记待欢迎。
                 # 防止 _check 比首次发言先跑导致 on_msg 里 `not old` 为 False 而漏掉欢迎。
                 if jt > now - 3600 and uid != (self._bot_self_id or ""):
