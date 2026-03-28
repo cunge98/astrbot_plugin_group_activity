@@ -226,7 +226,114 @@ _TAIL = """
 </html>"""
 
 
-# ====== 帮助 ======
+# ====== 群氛围预警 ======
+def VIBE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<div class="hdr" style="background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']})">
+  {_ANIME}
+  <h1>🌡️ 群氛围异常预警</h1>
+  <div class="sub">{{{{ group_name or "当前群" }}}} · {{{{ date_range }}}}</div>
+</div>
+
+<!-- 总体状态横幅 -->
+<div style="margin:14px 16px 6px;border-radius:14px;padding:16px 20px;
+     background:{{{{ status_bg }}}};border-left:5px solid {{{{ status_color }}}};display:flex;align-items:center;gap:14px">
+  <div style="font-size:2rem;line-height:1">{{{{ status_icon }}}}</div>
+  <div>
+    <div style="font-size:1.05rem;font-weight:700;color:{{{{ status_color }}}}">{{{{ status_label }}}}</div>
+    <div style="font-size:.82rem;color:#666;margin-top:3px">{{{{ status_desc }}}}</div>
+  </div>
+</div>
+
+<!-- 三大指标卡 -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 16px">
+
+  <!-- 消息量对比 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">📨 消息量</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ msg_color }}}}">{{{{ this_week_msgs }}}}</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(52,199,89,1)' if msg_delta >= 0 else 'rgba(255,59,48,1)' }}}}">
+      {{{{ '+' if msg_delta >= 0 else '' }}}}{{{{ msg_delta }}}}%
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_msgs }}}}</div>
+  </div>
+
+  <!-- 活跃人数对比 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">👥 活跃人数</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ active_color }}}}">{{{{ this_week_active }}}}</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(52,199,89,1)' if active_delta >= 0 else 'rgba(255,59,48,1)' }}}}">
+      {{{{ '+' if active_delta >= 0 else '' }}}}{{{{ active_delta }}}}%
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_active }}}}</div>
+  </div>
+
+  <!-- 沉默率 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">🤫 沉默率</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ silent_color }}}}">{{{{ silent_pct }}}}%</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(255,59,48,1)' if silent_delta >= 0 else 'rgba(52,199,89,1)' }}}}">
+      {{{{ '+' if silent_delta >= 0 else '' }}}}{{{{ silent_delta }}}}%pt
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_silent }}}}%</div>
+  </div>
+</div>
+
+<!-- 每日消息量迷你图 -->
+<div class="sec">📊 最近 14 天消息走势</div>
+<div style="margin:0 16px 10px;background:#f8f9fb;border-radius:12px;padding:14px 12px">
+  <div style="display:flex;align-items:flex-end;gap:3px;height:60px">
+    {{% for d in chart %}}
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+      <div style="width:100%;border-radius:3px 3px 0 0;background:{{{{ d.color }}}};height:{{{{ d.pct }}}}%;min-height:3px;transition:height .3s"></div>
+    </div>
+    {{% endfor %}}
+  </div>
+  <div style="display:flex;gap:3px;margin-top:4px">
+    {{% for d in chart %}}
+    <div style="flex:1;text-align:center;font-size:.52rem;color:#bbb;
+         {{% if d.highlight %}}font-weight:700;color:#666;{{% endif %}}">
+      {{{{ d.label }}}}
+    </div>
+    {{% endfor %}}
+  </div>
+</div>
+
+<!-- 异常信号列表 -->
+{{% if signals %}}
+<div class="sec">⚠️ 检测到的异常信号</div>
+<div style="margin:0 16px 10px;display:flex;flex-direction:column;gap:7px">
+  {{% for s in signals %}}
+  <div style="display:flex;align-items:flex-start;gap:10px;background:#f8f9fb;
+       border-radius:10px;padding:10px 12px;border-left:4px solid {{{{ s.color }}}}">
+    <div style="font-size:1.1rem;margin-top:1px">{{{{ s.icon }}}}</div>
+    <div>
+      <div style="font-size:.84rem;font-weight:600;color:#333">{{{{ s.title }}}}</div>
+      <div style="font-size:.76rem;color:#777;margin-top:2px">{{{{ s.desc }}}}</div>
+    </div>
+  </div>
+  {{% endfor %}}
+</div>
+{{% endif %}}
+
+<!-- AI 建议 -->
+{{% if suggestion %}}
+<div class="sec">💡 AI 建议</div>
+<div style="margin:0 16px 14px;background:linear-gradient(135deg,{t['stat_hdr1']}18,{t['stat_hdr2']}18);
+     border-radius:12px;padding:12px 14px;border:1px solid {t['stat_hdr1']}30;
+     font-size:.83rem;color:#444;line-height:1.7">
+  {{{{ suggestion }}}}
+</div>
+{{% endif %}}
+
+""" + _BRAND + _TAIL
 def HELP(th):
     t = THEMES.get(th, THEMES["清新蓝"])
     return _css(th) + f"""
@@ -244,6 +351,7 @@ def HELP(th):
 <div class="r"><span class="l">/打卡榜</span><span class="v">今日打卡排行 · 连续天数称号</span></div>
 <div class="r"><span class="l">/活跃评分</span><span class="v">群活跃综合评分卡（S/A/B/C/D 级）</span></div>
 <div class="r"><span class="l">/每日一问</span><span class="v">AI 发起今日群聊话题讨论</span></div>
+<div class="r"><span class="l">/群氛围</span><span class="v">近7天群氛围异常预警（冷场/骤降/沉默）</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>

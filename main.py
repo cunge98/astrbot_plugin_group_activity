@@ -16,7 +16,7 @@ try:
 except ImportError:
     AiocqhttpMessageEvent = None
 
-from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE TOPIC
+from . import templates as T  # HELP STATUS RANK QUERY INACTIVE ALL_OK WEEKLY RESULT STATS TREND HEATMAP CHECKIN WELCOME SCORE TOPIC VIBE
 
 try:
     from astrbot.core.utils.astrbot_path import get_astrbot_data_path
@@ -1281,6 +1281,224 @@ class GroupActivityPlugin(Star):
             }, gid=gid))
         except Exception as e:
             logger.error(f"每日一问渲染失败: {e}"); yield event.plain_result(f"💬 今日一问\n\n{topic}")
+
+    # ==================== 群氛围预警 ====================
+
+    @staticmethod
+    def _calc_vibe(gid: str, activity_data: dict) -> dict:
+        """
+        计算群氛围指标，比较近7天 vs 上7天。
+        返回包含状态、指标、异常信号、图表数据的字典。
+        """
+        today = datetime.date.today()
+        ms = activity_data.get("groups", {}).get(gid, {}).get("members", {})
+        ds = activity_data.get("groups", {}).get(gid, {}).get("daily_stats", {})
+        total = len(ms)
+
+        # 本周/上周日期范围
+        this_days = [(today - datetime.timedelta(days=i)).isoformat() for i in range(7)]
+        last_days = [(today - datetime.timedelta(days=7+i)).isoformat() for i in range(7)]
+
+        this_msgs = sum(ds.get(d, 0) for d in this_days)
+        last_msgs = sum(ds.get(d, 0) for d in last_days)
+
+        # 活跃人数：本周/上周各有多少人发过言（daily_stats 只有总量，用 members 的 last_active_date 近似）
+        now_ts = int(time.time())
+        this_start = (today - datetime.timedelta(days=6)).isoformat()
+        last_start = (today - datetime.timedelta(days=13)).isoformat()
+        last_end   = (today - datetime.timedelta(days=7)).isoformat()
+
+        this_active_set = {
+            uid for uid, d in ms.items()
+            if d.get("last_active_date", "") >= this_start
+        }
+        last_active_set = {
+            uid for uid, d in ms.items()
+            if last_start <= d.get("last_active_date", "") <= last_end
+        }
+        this_active = len(this_active_set)
+        last_active = len(last_active_set)
+
+        # 沉默率：本周/上周未发言人数 / 总人数
+        def _silent_pct(active_cnt):
+            return round((total - active_cnt) / max(total, 1) * 100)
+
+        this_silent = _silent_pct(this_active)
+        last_silent = _silent_pct(last_active)
+
+        # 变化百分比（防除零）
+        def _delta_pct(cur, prev):
+            if prev == 0:
+                return 100 if cur > 0 else 0
+            return round((cur - prev) / prev * 100)
+
+        msg_delta    = _delta_pct(this_msgs, last_msgs)
+        active_delta = _delta_pct(this_active, last_active)
+        silent_delta = this_silent - last_silent   # 百分点差
+
+        # 异常信号检测
+        signals = []
+        _RED  = "#ff3b30"
+        _ORG  = "#ff9500"
+        _GRN  = "#34c759"
+        _BLU  = "#007aff"
+
+        if this_msgs == 0 and last_msgs > 0:
+            signals.append({"icon": "🚨", "color": _RED,
+                "title": "群聊完全冷场",
+                "desc": f"本周 0 条消息，上周还有 {last_msgs} 条"})
+        elif msg_delta <= -50:
+            signals.append({"icon": "📉", "color": _RED,
+                "title": f"消息量骤降 {abs(msg_delta)}%",
+                "desc": f"本周 {this_msgs} 条，较上周大幅减少"})
+        elif msg_delta <= -25:
+            signals.append({"icon": "⬇️", "color": _ORG,
+                "title": f"消息量下滑 {abs(msg_delta)}%",
+                "desc": "群活跃度持续走低，建议及时干预"})
+        elif msg_delta >= 200:
+            signals.append({"icon": "📈", "color": _BLU,
+                "title": f"消息量暴增 +{msg_delta}%",
+                "desc": "活跃度异常飙升，可能有热点话题或争议"})
+
+        if this_silent >= 80:
+            signals.append({"icon": "😶", "color": _RED,
+                "title": f"沉默率过高（{this_silent}%）",
+                "desc": f"超过 {this_silent}% 的成员本周没有发言"})
+        elif this_silent >= 60 and silent_delta >= 10:
+            signals.append({"icon": "🤐", "color": _ORG,
+                "title": f"沉默率上升 +{silent_delta}pt",
+                "desc": "越来越多的成员停止发言"})
+
+        if active_delta <= -40 and last_active >= 3:
+            signals.append({"icon": "👋", "color": _ORG,
+                "title": f"活跃人数骤减 {abs(active_delta)}%",
+                "desc": f"本周 {this_active} 人活跃，较上周 {last_active} 人明显减少"})
+
+        if not signals and msg_delta >= 0 and this_silent < 50:
+            signals.append({"icon": "✅", "color": _GRN,
+                "title": "群氛围良好",
+                "desc": "消息量稳定，活跃度正常，无需担心"})
+
+        # 总体状态
+        danger_count = sum(1 for s in signals if s["color"] == _RED)
+        warn_count   = sum(1 for s in signals if s["color"] == _ORG)
+        if danger_count >= 1 or (this_msgs == 0 and total > 0):
+            status = "danger"
+            status_icon, status_label = "🔴", "群氛围危险"
+            status_desc = "检测到严重异常，建议立即采取行动"
+            status_color, status_bg = _RED, "#fff0f0"
+        elif warn_count >= 1:
+            status = "warning"
+            status_icon, status_label = "🟡", "群氛围预警"
+            status_desc = "存在潜在风险，建议适时组织话题活跃群聊"
+            status_color, status_bg = _ORG, "#fff8e6"
+        elif msg_delta >= 50:
+            status = "boom"
+            status_icon, status_label = "🔥", "群氛围高涨"
+            status_desc = "活跃度异常高，关注是否有争议或热点"
+            status_color, status_bg = _BLU, "#eef6ff"
+        else:
+            status = "ok"
+            status_icon, status_label = "🟢", "群氛围正常"
+            status_desc = "一切正常，继续保持"
+            status_color, status_bg = _GRN, "#f0fff4"
+
+        # 指标颜色
+        def _msg_color(d):
+            if d <= -50: return _RED
+            if d <= -25: return _ORG
+            if d >= 100: return _BLU
+            return "#333"
+
+        # 近 14 天图表
+        all14 = [(today - datetime.timedelta(days=13-i)).isoformat() for i in range(14)]
+        vals14 = [ds.get(d, 0) for d in all14]
+        mx = max(vals14) if vals14 else 1
+        if mx == 0: mx = 1
+        chart = []
+        split = (today - datetime.timedelta(days=7)).isoformat()
+        for i, (d, v) in enumerate(zip(all14, vals14)):
+            pct = max(4, round(v / mx * 100))
+            is_this_week = d > split
+            color = ("#43e97b" if is_this_week else "#a0c4ff") if v > 0 else "#e8e8e8"
+            chart.append({
+                "label": d[8:],   # day of month
+                "pct": pct,
+                "color": color,
+                "highlight": (i % 7 == 0),
+            })
+
+        # 日期范围文字
+        date_range = f"{last_days[-1][5:]} ~ {this_days[0][5:]}"
+
+        return {
+            "group_name": activity_data.get("groups", {}).get(gid, {}).get("group_name", ""),
+            "date_range": date_range,
+            "total_members": total,
+            "this_week_msgs": this_msgs,
+            "last_week_msgs": last_msgs,
+            "msg_delta": msg_delta,
+            "msg_color": _msg_color(msg_delta),
+            "this_week_active": this_active,
+            "last_week_active": last_active,
+            "active_delta": active_delta,
+            "active_color": _msg_color(active_delta),
+            "this_silent": this_silent,
+            "last_week_silent": last_silent,
+            "silent_pct": this_silent,
+            "silent_delta": silent_delta,
+            "silent_color": _RED if this_silent >= 80 else (_ORG if this_silent >= 60 else "#333"),
+            "status": status,
+            "status_icon": status_icon,
+            "status_label": status_label,
+            "status_desc": status_desc,
+            "status_color": status_color,
+            "status_bg": status_bg,
+            "signals": signals,
+            "chart": chart,
+            "suggestion": "",   # filled by AI if available
+        }
+
+    @filter.command("群氛围")
+    async def cmd_vibe(self, event: AstrMessageEvent):
+        """群氛围异常预警——对比近7天 vs 上7天，检测冷场/骤降/沉默等异常"""
+        gid = str(event.message_obj.group_id)
+        if not gid: yield event.plain_result("❌ 仅群聊可用。"); return
+        if not self.activity_data.get("groups", {}).get(gid, {}).get("members"):
+            yield event.plain_result("暂无活跃数据，请先等待成员发言。"); return
+
+        data = self._calc_vibe(gid, self.activity_data)
+        data["now"] = time.strftime("%Y-%m-%d %H:%M")
+
+        # AI 建议
+        if self.config.get("ai_enabled"):
+            try:
+                prompt = (
+                    f"群「{data['group_name'] or '当前群'}」最近7天消息{data['this_week_msgs']}条"
+                    f"（上周{data['last_week_msgs']}条，变化{data['msg_delta']:+d}%），"
+                    f"活跃{data['this_week_active']}人（上周{data['last_week_active']}人），"
+                    f"沉默率{data['silent_pct']}%。"
+                    f"当前状态：{data['status_label']}。"
+                    f"请用当前人设给出一条简短（60字以内）的群运营建议，幽默自然。"
+                )
+                r = await self._ai(prompt, self._persona(), event.unified_msg_origin)
+                if r: data["suggestion"] = r.strip()[:200]
+            except Exception as e:
+                logger.warning(f"群氛围AI建议失败: {e}")
+
+        try:
+            yield event.image_result(await self._img(T.VIBE, data, gid=gid))
+        except Exception as e:
+            logger.error(f"群氛围渲染失败: {e}")
+            sig_text = "、".join(s["title"] for s in data["signals"][:3])
+            yield event.plain_result(
+                f"🌡️ 群氛围报告\n\n"
+                f"状态：{data['status_icon']} {data['status_label']}\n"
+                f"本周消息：{data['this_week_msgs']} 条（{data['msg_delta']:+d}%）\n"
+                f"活跃人数：{data['this_week_active']} 人\n"
+                f"沉默率：{data['silent_pct']}%\n"
+                f"信号：{sig_text or '无异常'}"
+            )
 
     @filter.command("手动检测")
     @filter.permission_type(filter.PermissionType.ADMIN)
