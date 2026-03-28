@@ -218,7 +218,7 @@ _META_FULL = '<div class="meta"><span>{{ group_name }}</span><span>共 {{ member
 _META = '<div class="meta"><span>{{ now }}</span></div><div class="slogan">{{ slogan }}</div>'
 
 # 品牌底栏（Jinja2 模板）
-_BRAND = '<div class="brand"><span>群活跃检测 v2.1</span><span>·</span><span>{{ now }}</span></div>'
+_BRAND = '<div class="brand"><span>群活跃检测 v2.2</span><span>·</span><span>{{ now }}</span></div>'
 
 _TAIL = """
 </div>
@@ -226,13 +226,145 @@ _TAIL = """
 </html>"""
 
 
-# ====== 帮助 ======
+# ====== 群氛围预警 ======
+def VIBE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<div class="hdr" style="background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']})">
+  {_ANIME}
+  <h1>🌡️ 群氛围异常预警</h1>
+  <div class="sub">{{{{ group_name or "当前群" }}}} · {{{{ date_range }}}}</div>
+</div>
+
+<!-- 总体状态横幅 -->
+<div style="margin:14px 16px 6px;border-radius:14px;padding:16px 20px;
+     background:{{{{ status_bg }}}};border-left:5px solid {{{{ status_color }}}};display:flex;align-items:center;gap:14px">
+  <div style="font-size:2rem;line-height:1">{{{{ status_icon }}}}</div>
+  <div>
+    <div style="font-size:1.05rem;font-weight:700;color:{{{{ status_color }}}}">{{{{ status_label }}}}</div>
+    <div style="font-size:.82rem;color:#666;margin-top:3px">{{{{ status_desc }}}}</div>
+  </div>
+</div>
+
+<!-- 三大指标卡 -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:10px 16px">
+
+  <!-- 消息量对比 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">📨 消息量</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ msg_color }}}}">{{{{ this_week_msgs }}}}</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(52,199,89,1)' if msg_delta >= 0 else 'rgba(255,59,48,1)' }}}}">
+      {{{{ '+' if msg_delta >= 0 else '' }}}}{{{{ msg_delta }}}}%
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_msgs }}}}</div>
+  </div>
+
+  <!-- 活跃人数对比 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">👥 活跃人数</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ active_color }}}}">{{{{ this_week_active }}}}</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(52,199,89,1)' if active_delta >= 0 else 'rgba(255,59,48,1)' }}}}">
+      {{{{ '+' if active_delta >= 0 else '' }}}}{{{{ active_delta }}}}%
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_active }}}}</div>
+  </div>
+
+  <!-- 沉默率 -->
+  <div style="background:#f8f9fb;border-radius:12px;padding:13px 10px;text-align:center">
+    <div style="font-size:.72rem;color:#999;margin-bottom:4px">🤫 沉默率</div>
+    <div style="font-size:1.4rem;font-weight:800;color:{{{{ silent_color }}}}">{{{{ silent_pct }}}}%</div>
+    <div style="font-size:.72rem;color:#aaa">本周</div>
+    <div style="font-size:.78rem;margin-top:5px;font-weight:600;
+         color:{{{{ 'rgba(255,59,48,1)' if silent_delta >= 0 else 'rgba(52,199,89,1)' }}}}">
+      {{{{ '+' if silent_delta >= 0 else '' }}}}{{{{ silent_delta }}}}%pt
+    </div>
+    <div style="font-size:.68rem;color:#bbb">vs 上周 {{{{ last_week_silent }}}}%</div>
+  </div>
+</div>
+
+<!-- 每日消息量迷你图 -->
+<div class="sec">📊 最近 14 天消息走势</div>
+<div style="margin:0 16px 10px;background:#f8f9fb;border-radius:12px;padding:14px 12px 10px">
+
+  <!-- 消息数标签行（高活跃日显示数值）-->
+  <div style="display:flex;gap:4px;height:16px;margin-bottom:3px">
+    {{% for d in chart %}}
+    <div style="flex:1;text-align:center;font-size:.5rem;line-height:16px;
+         color:{{% if d.is_this_week %}}#2a9a56{{% else %}}#5b87cc{{% endif %}};font-weight:700">
+      {{% if d.count > 0 %}}{{{{ d.count }}}}{{% endif %}}
+    </div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 柱状图（像素高度直接设置，align-items:flex-end 保证底部对齐）-->
+  <div style="display:flex;align-items:flex-end;gap:4px;height:90px;border-bottom:1px solid #e0e4e8">
+    {{% for d in chart %}}
+    <div style="flex:1;background:{{{{ d.color }}}};border-radius:3px 3px 0 0;
+         height:{{{{ d.height_px }}}}px"></div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 日期标签 -->
+  <div style="display:flex;gap:4px;margin-top:5px">
+    {{% for d in chart %}}
+    <div style="flex:1;text-align:center;font-size:.52rem;
+         {{% if d.highlight %}}font-weight:800;color:#444;{{% else %}}color:#bbb;{{% endif %}}">
+      {{{{ d.label }}}}
+    </div>
+    {{% endfor %}}
+  </div>
+
+  <!-- 图例 -->
+  <div style="display:flex;justify-content:flex-end;gap:14px;margin-top:8px">
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:#7eb8ff"></div>
+      <span style="font-size:.6rem;color:#999">上周</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px">
+      <div style="width:10px;height:10px;border-radius:2px;background:#43e97b"></div>
+      <span style="font-size:.6rem;color:#999">本周</span>
+    </div>
+  </div>
+</div>
+
+<!-- 异常信号列表 -->
+{{% if signals %}}
+<div class="sec">⚠️ 检测到的异常信号</div>
+<div style="margin:0 16px 10px;display:flex;flex-direction:column;gap:7px">
+  {{% for s in signals %}}
+  <div style="display:flex;align-items:flex-start;gap:10px;background:#f8f9fb;
+       border-radius:10px;padding:10px 12px;border-left:4px solid {{{{ s.color }}}}">
+    <div style="font-size:1.1rem;margin-top:1px">{{{{ s.icon }}}}</div>
+    <div>
+      <div style="font-size:.84rem;font-weight:600;color:#333">{{{{ s.title }}}}</div>
+      <div style="font-size:.76rem;color:#777;margin-top:2px">{{{{ s.desc }}}}</div>
+    </div>
+  </div>
+  {{% endfor %}}
+</div>
+{{% endif %}}
+
+<!-- AI 建议 -->
+{{% if suggestion %}}
+<div class="sec">💡 AI 建议</div>
+<div style="margin:0 16px 14px;background:linear-gradient(135deg,{t['stat_hdr1']}18,{t['stat_hdr2']}18);
+     border-radius:12px;padding:12px 14px;border:1px solid {t['stat_hdr1']}30;
+     font-size:.83rem;color:#444;line-height:1.7">
+  {{{{ suggestion }}}}
+</div>
+{{% endif %}}
+
+""" + _BRAND + _TAIL
 def HELP(th):
     t = THEMES.get(th, THEMES["清新蓝"])
     return _css(th) + f"""
 <div class="hdr" style="background:linear-gradient(135deg,{t['help_hdr1']},{t['help_hdr2']})">
   {_ANIME}
-  <h1>📋 群活跃检测 · 指令帮助</h1><div class="sub">AI 增强版 v2.1</div>
+  <h1>📋 群活跃检测 · 指令帮助</h1><div class="sub">AI 增强版 v2.2</div>
   {_META}
 </div>
 """ + """
@@ -240,6 +372,11 @@ def HELP(th):
 <div class="r"><span class="l">/活跃排行</span><span class="v">查看群活跃排行榜</span></div>
 <div class="r"><span class="l">/活跃查询</span><span class="v">查询自己的活跃信息</span></div>
 <div class="r"><span class="l">/活跃趋势</span><span class="v">近14天群活跃趋势图</span></div>
+<div class="r"><span class="l">/活跃热力图</span><span class="v">近14天发言时段分布图</span></div>
+<div class="r"><span class="l">/打卡榜</span><span class="v">今日打卡排行 · 连续天数称号</span></div>
+<div class="r"><span class="l">/活跃评分</span><span class="v">群活跃综合评分卡（S/A/B/C/D 级）</span></div>
+<div class="r"><span class="l">/每日一问</span><span class="v">AI 发起今日群聊话题讨论</span></div>
+<div class="r"><span class="l">/群氛围</span><span class="v">近7天群氛围异常预警（冷场/骤降/沉默）</span></div>
 <div class="r"><span class="l">/活跃帮助</span><span class="v">显示本帮助页面</span></div>
 <div class="sec">🔑 管理员专用</div>
 <div class="r"><span class="l">/活跃检测</span><span class="v">查看检测状态和配置</span></div>
@@ -413,16 +550,28 @@ def WEEKLY(th):
 </div>
 {{% if ai1 %}}<div class="ai-blurb">🤖 {{{{ ai1 }}}}</div>{{% endif %}}
 <div class="sec">📈 近7天消息量</div>
-<div style="padding:16px 0 8px">
-  <div class="mini-bars">
+<div style="padding:12px 28px 4px">
+  <svg viewBox="0 0 420 90" width="100%" height="90" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="wbg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="{t['hdr1']}"/>
+        <stop offset="100%" stop-color="{t['hdr2']}" stop-opacity="0.5"/>
+      </linearGradient>
+    </defs>
     {{% for d in chart %}}
-    <div class="mini-col">
-      <div class="mini-val">{{{{ d.v }}}}</div>
-      <div class="mini-bar" style="height:{{{{ d.pct }}}}%"></div>
-      <div class="mini-label">{{{{ d.label }}}}</div>
-    </div>
+    {{% set bh = [d.pct * 65 // 100, 2]|max %}}
+    {{% set by = 65 - bh %}}
+    {{% set cx = loop.index0 * 60 + 30 %}}
+    <rect x="{{{{ loop.index0 * 60 + 6 }}}}" y="{{{{ by }}}}" width="48" height="{{{{ bh }}}}" rx="3" fill="url(#wbg)"/>
+    <text x="{{{{ cx }}}}" y="{{{{ [by - 4, 12]|max }}}}" text-anchor="middle" font-size="11" font-weight="700" fill="{t['text']}" stroke="white" stroke-width="3" paint-order="stroke fill">{{{{ d.v }}}}</text>
+    <text x="{{{{ cx }}}}" y="87" text-anchor="middle" font-size="10" fill="{t['subtle']}">{{{{ d.label }}}}</text>
+    {{% if not loop.last %}}
+    {{% set nbh = [chart[loop.index].pct * 65 // 100, 2]|max %}}
+    <line x1="{{{{ cx }}}}" y1="{{{{ by }}}}" x2="{{{{ loop.index * 60 + 30 }}}}" y2="{{{{ 65 - nbh }}}}" stroke="{t['hdr1']}" stroke-width="1.5" stroke-opacity="0.7"/>
+    {{% endif %}}
+    <circle cx="{{{{ cx }}}}" cy="{{{{ by }}}}" r="3" fill="{t['hdr1']}" stroke="white" stroke-width="1"/>
     {{% endfor %}}
-  </div>
+  </svg>
 </div>
 {{% if ai2 %}}<div class="ai-blurb">🤖 {{{{ ai2 }}}}</div>{{% endif %}}
 <div class="sec">🏆 本周最活跃 Top3</div>
@@ -565,15 +714,21 @@ def TREND(th):
 """ + """
 <div class="chart">
   <div class="chart-title">每日群消息数量</div>
-  <div class="bars">
+  <svg viewBox="0 0 490 160" width="100%" height="160" xmlns="http://www.w3.org/2000/svg">
     {% for d in data %}
-    <div class="bar-col">
-      <div class="bar-val">{{ d.v }}</div>
-      <div class="bar" style="height:{{ d.pct }}%;background:linear-gradient(180deg,{{ d.color }},{{ d.color2 }})"></div>
-      <div class="bar-label">{{ d.label }}</div>
-    </div>
+    {% set bh = [d.pct * 120 // 100, 2]|max %}
+    {% set by = 120 - bh %}
+    {% set cx = loop.index0 * 35 + 17 %}
+    <rect x="{{ loop.index0 * 35 + 4 }}" y="{{ by }}" width="27" height="{{ bh }}" rx="3" fill="{{ d.color }}" fill-opacity="0.8"/>
+    <text x="{{ cx }}" y="{{ [by - 4, 12]|max }}" text-anchor="middle" font-size="11" font-weight="700" fill="#333" stroke="white" stroke-width="3" paint-order="stroke fill">{{ d.v }}</text>
+    <text x="{{ cx }}" y="142" text-anchor="middle" font-size="10" fill="#888">{{ d.label }}</text>
+    {% if not loop.last %}
+    {% set nbh = [data[loop.index].pct * 120 // 100, 2]|max %}
+    <line x1="{{ cx }}" y1="{{ by }}" x2="{{ loop.index * 35 + 17 }}" y2="{{ 120 - nbh }}" stroke="{{ d.color }}" stroke-width="1.5" stroke-opacity="0.8"/>
+    {% endif %}
+    <circle cx="{{ cx }}" cy="{{ by }}" r="3" fill="{{ d.color }}" stroke="white" stroke-width="1.5"/>
     {% endfor %}
-  </div>
+  </svg>
 </div>
 <div class="sec">数据概览</div>
 <div class="r"><span class="l">日均消息数</span><span class="v">{{ avg }}</span></div>
@@ -581,3 +736,253 @@ def TREND(th):
 <div class="r"><span class="l">最低谷</span><span class="v">{{ low_day }} ({{ low_val }}条)</span></div>
 <div class="r"><span class="l">总消息数</span><span class="v">{{ total_msgs }}</span></div>
 """ + _BRAND + _TAIL
+
+
+# ====== 时段热力图 ======
+def HEATMAP(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.hmap-wrap{{padding:16px 28px 8px}}
+.hmap-title{{font-size:13px;color:{t['text2']};margin-bottom:10px}}
+.hmap-peak{{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;background:{t['sec_bg']};color:{t['text']}}}
+.hmap-note{{font-size:11px;color:{t['subtle']};margin-top:8px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['trend_hdr1']},{t['trend_hdr2']},{t['trend_hdr3']})">
+  {_ANIME}
+  <h1>🕐 发言时段分布</h1><div class="sub">近 {{{{ days }}}} 天 · 24小时热力图</div>
+  {_META}
+</div>
+""" + """
+<div class="hmap-wrap">
+  <div class="hmap-title">每小时平均发言量（近 {{ days }} 天均值）</div>
+  <svg viewBox="0 0 504 130" width="100%" height="130" xmlns="http://www.w3.org/2000/svg">
+    {% for d in data %}
+    {% set bh = [d.pct * 90 // 100, 2]|max %}
+    {% set by = 90 - bh %}
+    {% set cx = loop.index0 * 21 + 10 %}
+    <rect x="{{ loop.index0 * 21 + 2 }}" y="{{ by }}" width="17" height="{{ bh }}" rx="2" fill="{{ d.color }}" fill-opacity="0.85"/>
+    {% if d.pct >= 20 %}
+    <text x="{{ cx }}" y="{{ [by - 2, 8]|max }}" text-anchor="middle" font-size="8" font-weight="700" fill="{{ d.color }}" stroke="white" stroke-width="2" paint-order="stroke fill">{{ d.v }}</text>
+    {% endif %}
+    {% if loop.index0 % 3 == 0 %}
+    <text x="{{ cx }}" y="118" text-anchor="middle" font-size="9" fill="#999">{{ d.label }}</text>
+    {% endif %}
+    {% endfor %}
+    <line x1="0" y1="92" x2="504" y2="92" stroke="#ddd" stroke-width="0.5"/>
+  </svg>
+  <div class="hmap-note">
+    🔥 最活跃时段：<span class="hmap-peak">{{ peak_hour }}（均 {{ peak_val }} 条/天）</span>
+    &nbsp;&nbsp;统计消息总量：{{ total_msgs }} 条
+  </div>
+</div>
+<div class="sec">时段说明</div>
+<div class="r"><span class="l">深夜 (00-05)</span><span class="v">{% set n = data[0].v + data[1].v + data[2].v + data[3].v + data[4].v + data[5].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+<div class="r"><span class="l">早间 (06-11)</span><span class="v">{% set n = data[6].v + data[7].v + data[8].v + data[9].v + data[10].v + data[11].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+<div class="r"><span class="l">下午 (12-17)</span><span class="v">{% set n = data[12].v + data[13].v + data[14].v + data[15].v + data[16].v + data[17].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+<div class="r"><span class="l">晚间 (18-23)</span><span class="v">{% set n = data[18].v + data[19].v + data[20].v + data[21].v + data[22].v + data[23].v %}{{ "%.1f"|format(n) }} 条/天均值</span></div>
+""" + _BRAND + _TAIL
+
+
+# ====== 打卡榜 ======
+def CHECKIN(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.streak-badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;background:{t['sec_bg']};color:{t['text2']}}}
+.checkin-stat{{display:flex;gap:20px;padding:14px 28px;background:{t['sec_bg']};border-top:1px solid {t['sec_border']}}}
+.checkin-stat-item{{flex:1;text-align:center}}
+.checkin-stat-num{{font-size:24px;font-weight:900;color:{t['text']}}}
+.checkin-stat-label{{font-size:11px;color:{t['text2']};margin-top:2px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['ok_hdr1']},{t['ok_hdr2']})">
+  {_ANIME}
+  <h1>📅 今日打卡榜</h1><div class="sub">{{{{ date }}}} · 连续活跃称号</div>
+  {_META_FULL}
+</div>
+""" + """
+{% if rows %}
+{% for r in rows %}
+<div class="rank-row">
+  <div class="rank-num">{{ ['🥇','🥈','🥉'][loop.index0] if loop.index <= 3 else loop.index }}</div>
+  <img class="rank-avatar" src="https://q1.qlogo.cn/g?b=qq&nk={{ r.qq }}&s=100" onerror="this.style.display='none'">
+  <div class="rank-info">
+    <div class="rank-name">{{ r.nick }}</div>
+    <div class="rank-detail"><span class="streak-badge">{{ r.title }}</span>&nbsp;&nbsp;🔥 连续 {{ r.streak }} 天</div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div style="padding:32px;text-align:center;font-size:14px;color:#999">今天还没有人打卡，快来第一个！🚀</div>
+{% endif %}
+<div class="checkin-stat">
+  <div class="checkin-stat-item">
+    <div class="checkin-stat-num" style="color:#2e7d32">{{ total }}</div>
+    <div class="checkin-stat-label">今日已打卡</div>
+  </div>
+  <div class="checkin-stat-item">
+    <div class="checkin-stat-num" style="color:#c62828">{{ [members_total - total, 0]|max }}</div>
+    <div class="checkin-stat-label">尚未打卡</div>
+  </div>
+  <div class="checkin-stat-item">
+    <div class="checkin-stat-num">{{ members_total }}</div>
+    <div class="checkin-stat-label">群成员总数</div>
+  </div>
+</div>
+""" + _BRAND + _TAIL
+
+
+# ====== 活跃评分卡 ======
+def SCORE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.score-hero{{display:flex;align-items:center;gap:24px;padding:20px 28px;background:{t['sec_bg']};border-bottom:1px solid {t['sec_border']}}}
+.score-circle{{width:96px;height:96px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;font-weight:900;box-shadow:0 4px 16px rgba(0,0,0,.12)}}
+.score-grade{{font-size:42px;line-height:1;color:#fff}}
+.score-pts{{font-size:13px;color:rgba(255,255,255,.85);margin-top:2px}}
+.score-label-title{{font-size:20px;font-weight:900;color:{t['text']}}}
+.score-label-sub{{font-size:13px;color:{t['text2']};margin-top:4px}}
+.score-bar-wrap{{padding:0 28px 8px}}
+.score-bar-row{{margin:10px 0}}
+.score-bar-meta{{display:flex;justify-content:space-between;font-size:12px;color:{t['text2']};margin-bottom:4px}}
+.score-bar-bg{{height:10px;border-radius:5px;background:{t['border']};overflow:hidden}}
+.score-bar-fill{{height:100%;border-radius:5px}}
+.score-stat{{display:flex;border-top:1px solid {t['sec_border']}}}
+.score-stat-item{{flex:1;padding:12px 0;text-align:center;border-right:1px solid {t['sec_border']}}}
+.score-stat-item:last-child{{border-right:none}}
+.score-stat-num{{font-size:20px;font-weight:900;color:{t['text']}}}
+.score-stat-label{{font-size:11px;color:{t['text2']};margin-top:2px}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']})">
+  {_ANIME}
+  <h1>📊 活跃评分卡</h1><div class="sub">{{{{ date }}}} · {{{{ group_name }}}}</div>
+  {_META}
+</div>
+""" + """
+<div class="score-hero">
+  <div class="score-circle" style="background:linear-gradient(135deg,{{ grade_color }}cc,{{ grade_color }})">
+    <div class="score-grade">{{ grade }}</div>
+    <div class="score-pts">{{ total }}分</div>
+  </div>
+  <div>
+    <div class="score-label-title">{{ icon }} {{ label }}</div>
+    <div class="score-label-sub">综合得分：{{ total }} / 100 分</div>
+  </div>
+</div>
+<div class="sec">评分维度</div>
+<div class="score-bar-wrap">
+{% for d in dims %}
+<div class="score-bar-row">
+  <div class="score-bar-meta">
+    <span>{{ d.name }}</span>
+    <span>{{ d.score }} / {{ d.max }} 分</span>
+  </div>
+  <div class="score-bar-bg">
+    <div class="score-bar-fill" style="width:{{ d.pct }}%;background:linear-gradient(90deg,#43e97b,#38f9d7)"></div>
+  </div>
+</div>
+{% endfor %}
+</div>
+<div class="sec">群概况</div>
+<div class="score-stat">
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ total_members }}</div>
+    <div class="score-stat-label">群成员总数</div>
+  </div>
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ avg7 }}</div>
+    <div class="score-stat-label">日均消息量</div>
+  </div>
+  <div class="score-stat-item">
+    <div class="score-stat-num">{{ msgs7 }}</div>
+    <div class="score-stat-label">近7天总量</div>
+  </div>
+</div>
+""" + _BRAND + _TAIL
+
+
+# ====== 每日一问 ======
+def TOPIC(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+/* ── 话题英雄区 ── */
+.topic-hero{{padding:32px 32px 24px;position:relative;overflow:hidden}}
+.topic-deco-q{{position:absolute;top:-10px;left:20px;font-size:120px;font-weight:900;
+  color:{t['query_hdr1']};opacity:.08;line-height:1;user-select:none;pointer-events:none}}
+.topic-deco-q2{{position:absolute;bottom:-30px;right:20px;font-size:120px;font-weight:900;
+  color:{t['query_hdr2']};opacity:.08;line-height:1;user-select:none;pointer-events:none}}
+.topic-tag{{display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:20px;
+  font-size:12px;font-weight:700;
+  background:linear-gradient(90deg,{t['query_hdr1']}22,{t['query_hdr2']}22);
+  color:{t['query_hdr1']};margin-bottom:18px;border:1px solid {t['query_hdr1']}44}}
+.topic-q{{font-size:22px;font-weight:900;color:{t['text']};line-height:1.7;
+  word-break:break-word;position:relative;z-index:1}}
+/* ── 讨论引导 ── */
+.topic-guide{{padding:0 28px 4px}}
+.topic-guide-item{{display:flex;align-items:flex-start;gap:12px;padding:13px 0;
+  border-bottom:1px solid {t['border']}}}
+.topic-guide-item:last-child{{border-bottom:none}}
+.topic-guide-icon{{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;flex-shrink:0;background:{t['sec_bg']}}}
+.topic-guide-text{{flex:1}}
+.topic-guide-title{{font-size:13px;font-weight:700;color:{t['text']};margin-bottom:2px}}
+.topic-guide-sub{{font-size:11px;color:{t['text2']};line-height:1.5}}
+/* ── AI互动提示 ── */
+.topic-interact{{margin:16px 28px;border-radius:14px;
+  background:linear-gradient(135deg,{t['query_hdr1']}18,{t['query_hdr2']}18);
+  border:1px solid {t['query_hdr1']}33;padding:16px 20px;
+  display:flex;align-items:center;gap:14px}}
+.topic-interact-icon{{font-size:28px;flex-shrink:0}}
+.topic-interact-title{{font-size:13px;font-weight:900;color:{t['text']};margin-bottom:3px}}
+.topic-interact-sub{{font-size:11px;color:{t['text2']};line-height:1.5}}
+.topic-ai-badge{{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;
+  font-weight:700;background:linear-gradient(90deg,{t['stat_hdr1']},{t['stat_hdr2']});
+  color:#fff;margin-left:8px;vertical-align:middle}}
+</style>
+<div class="hdr" style="background:linear-gradient(135deg,{t['query_hdr1']},{t['query_hdr2']})">
+  {_ANIME}
+  <h1>💬 每日一问</h1><div class="sub">{{{{ date }}}} · {{{{ group_name }}}}</div>
+  {_META}
+</div>
+""" + """
+<div class="topic-hero">
+  <div class="topic-deco-q">"</div>
+  <div class="topic-deco-q2">"</div>
+  <div class="topic-tag">✨ 今日话题{% if is_ai %}<span class="topic-ai-badge">AI 生成</span>{% endif %}</div>
+  <div class="topic-q">{{ topic }}</div>
+</div>
+<div class="sec">💡 讨论方向参考</div>
+<div class="topic-guide">
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">💭</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">分享你的真实想法</div>
+      <div class="topic-guide-sub">你是怎么看这件事的？有没有类似的亲身经历？</div>
+    </div>
+  </div>
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">🔥</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">讲讲你的故事</div>
+      <div class="topic-guide-sub">和这个话题相关的记忆、趣事或难忘瞬间～</div>
+    </div>
+  </div>
+  <div class="topic-guide-item">
+    <div class="topic-guide-icon">🎯</div>
+    <div class="topic-guide-text">
+      <div class="topic-guide-title">换个角度想一想</div>
+      <div class="topic-guide-sub">如果你的答案和大多数人不同，那就更有意思了！</div>
+    </div>
+  </div>
+</div>
+<div class="topic-interact">
+  <div class="topic-interact-icon">🤖</div>
+  <div>
+    <div class="topic-interact-title">引用这条消息发言，AI 将与你互动！</div>
+    <div class="topic-interact-sub">AI 会根据你的回答内容做出有趣的个性化回复 ✨</div>
+  </div>
+</div>
+""" + _BRAND + _TAIL
+

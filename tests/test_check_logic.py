@@ -305,3 +305,186 @@ class TestKickSideEffect:
         await plugin._kick(cl, gid, uid, "Del")
 
         assert uid not in plugin.activity_data["groups"][gid]["members"]
+
+
+# ── departed member cleanup in _check ─────────────────────────────────────────
+
+class TestDepartedMemberCleanup:
+    """
+    When a member is manually kicked or leaves the group outside the plugin,
+    _check should detect they are no longer in the API member list and remove
+    their record from activity_data.
+    """
+
+    async def test_removes_member_not_in_api_list(self, plugin):
+        """Member in activity_data but absent from get_group_member_list is removed."""
+        now = int(time.time())
+        gid = "30001"
+        staying_uid = "3001"
+        departed_uid = "3002"   # manually kicked — not in API list
+
+        _add_member(plugin, gid, staying_uid, now - 86400)
+        _add_member(plugin, gid, departed_uid, now - 86400)
+
+        # API only returns the staying member
+        cl = make_mock_client(member_list=[_make_ml_member(int(staying_uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        members = plugin.activity_data["groups"][gid]["members"]
+        assert departed_uid not in members
+        assert staying_uid in members
+
+    async def test_departed_member_removed_and_staying_member_intact(self, plugin):
+        now = int(time.time())
+        gid = "30002"
+        staying_uid = "3003"
+        departed_uid = "3099"
+        _add_member(plugin, gid, staying_uid, now - 86400)
+        _add_member(plugin, gid, departed_uid, now - 86400)
+
+        # Only staying member is returned by API; departed member should be cleaned up
+        cl = make_mock_client(member_list=[_make_ml_member(int(staying_uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        members = plugin.activity_data["groups"][gid]["members"]
+        assert departed_uid not in members
+        assert staying_uid in members
+
+    async def test_no_dirty_flag_when_no_departures(self, plugin):
+        now = int(time.time())
+        gid = "30003"
+        uid = "3004"
+        _add_member(plugin, gid, uid, now - 86400)
+
+        plugin._dirty = False
+        cl = make_mock_client(member_list=[_make_ml_member(int(uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        # _save() is always called but _dirty was False before, so it stays False
+        assert plugin._dirty is False
+
+    async def test_multiple_departed_members_all_removed(self, plugin):
+        now = int(time.time())
+        gid = "30004"
+        for uid in ["4001", "4002", "4003"]:
+            _add_member(plugin, gid, uid, now - 86400)
+
+        # Only 4001 remains
+        cl = make_mock_client(member_list=[_make_ml_member(4001)])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        members = plugin.activity_data["groups"][gid]["members"]
+        assert "4001" in members
+        assert "4002" not in members
+        assert "4003" not in members
+
+    async def test_staying_members_data_preserved(self, plugin):
+        """Cleanup must not corrupt data of members who are still in the group."""
+        now = int(time.time())
+        gid = "30005"
+        uid = "5001"
+        _add_member(plugin, gid, uid, now - 86400, warned_at=now - 1000)
+        _add_member(plugin, gid, "5002", now - 86400)  # will be removed
+
+        cl = make_mock_client(member_list=[_make_ml_member(int(uid))])
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        ud = plugin.activity_data["groups"][gid]["members"].get(uid)
+        assert ud is not None
+        assert "5002" not in plugin.activity_data["groups"][gid]["members"]
+
+
+# ── welcome_pending population in _check ──────────────────────────────────────
+
+class TestCheckWelcomePending:
+    """_check() must add genuinely-new members to _welcome_pending so that the
+    welcome fires even if _check runs before their first message."""
+
+    async def test_recent_new_member_added_to_welcome_pending(self, plugin):
+        """A member whose join_time is within the last hour gets added to
+        _welcome_pending when first seen by _check."""
+        import time
+        now = int(time.time())
+        gid = "60001"
+        # Member is brand-new (joined 5 minutes ago) and not yet in md
+        ml = [_make_ml_member(uid=7001, join_time=now - 300)]
+        cl = make_mock_client(member_list=ml)
+
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        assert (gid, "7001") in plugin._welcome_pending
+
+    async def test_old_member_not_added_to_welcome_pending(self, plugin):
+        """A member who joined 2 days ago is NOT added to _welcome_pending —
+        prevents spurious welcomes when the system sees them for the first time."""
+        import time
+        now = int(time.time())
+        gid = "60002"
+        ml = [_make_ml_member(uid=7002, join_time=now - 2 * 86400)]
+        cl = make_mock_client(member_list=ml)
+
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        assert (gid, "7002") not in plugin._welcome_pending
+
+    async def test_existing_member_not_added_to_welcome_pending(self, plugin):
+        """A member already tracked in md with the same join_time is not added to
+        _welcome_pending by the new-member path (only by the rejoin path)."""
+        import time
+        now = int(time.time())
+        gid = "60003"
+        uid = "7003"
+        old_join = now - 30 * 86400   # joined 30 days ago
+        # Store with same join_time the API will return → no rejoin detection
+        plugin.activity_data.setdefault("groups", {})[gid] = {
+            "members": {uid: {
+                "last_active": now - 86400, "warned_at": None, "nickname": "User7003",
+                "join_time": old_join, "role": "member", "streak": 0, "last_active_date": "",
+            }},
+            "daily_stats": {},
+        }
+        ml = [_make_ml_member(uid=int(uid), join_time=old_join)]
+        cl = make_mock_client(member_list=ml)
+
+        await plugin._check(cl, gid, **_check_params(plugin))
+
+        assert (gid, uid) not in plugin._welcome_pending
+
+    async def test_check_then_message_still_triggers_welcome(self, plugin):
+        """End-to-end: _check runs first (adds to welcome_pending), then
+        on_msg fires → _ai_welcome task is created."""
+        import time
+        import asyncio
+        from unittest.mock import patch
+        from helpers import make_mock_event, make_config
+        import astrbot_plugin_group_activity.main as m
+
+        cfg = make_config(ai_welcome=True, welcome_style="简洁清爽")
+        plugin2 = __import__("helpers", fromlist=["make_plugin"]).make_plugin(
+            config=cfg, tmp_path=plugin.data_file.parent
+        )
+
+        now = int(time.time())
+        gid = "60004"
+        uid = "7004"
+
+        # Step 1: _check detects new member and adds to welcome_pending
+        ml = [_make_ml_member(uid=int(uid), join_time=now - 120)]
+        cl = make_mock_client(member_list=ml)
+        await plugin2._check(cl, gid, **_check_params(plugin2))
+        assert (gid, uid) in plugin2._welcome_pending
+
+        # Step 2: member sends first message
+        event = make_mock_event(group_id=gid, sender_id=uid, sender_name="PAM")
+        created = []
+        with patch("asyncio.create_task",
+                   side_effect=lambda c, **kw: created.append(c) or MagicMock()):
+            await plugin2.on_msg(event)
+
+        for c in created:
+            if hasattr(c, "close"):
+                c.close()
+
+        welcome = [c for c in created if "_ai_welcome" in getattr(c, "__qualname__", "")]
+        assert len(welcome) >= 1
+        assert (gid, uid) not in plugin2._welcome_pending

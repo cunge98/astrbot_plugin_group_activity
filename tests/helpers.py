@@ -34,6 +34,12 @@ def make_config(**overrides) -> dict:
         "auto_weekly_hour": 20,
         "theme": "清新蓝",
         "kick_message": "成员 {nickname} 因超过 {days} 天未发言已被移出群聊。",
+        "ai_welcome": False,
+        "welcome_style": "AI生成",
+        "welcome_message": "欢迎 {nickname} 加入本群！有什么不懂的尽管问～ 😊",
+        "auto_topic": False,
+        "auto_topic_day": "每天",
+        "auto_topic_time": "09:00",
     }
     defaults.update(overrides)
     return defaults
@@ -80,13 +86,14 @@ def make_plugin(config=None, tmp_path=None):
 
 
 def make_mock_event(group_id, sender_id, sender_name="", message_str="",
-                    self_id="99999"):
+                    self_id="99999", message_id="100"):
     """Return a minimal AstrMessageEvent mock for on_msg tests."""
     event = MagicMock()
     event.message_obj.group_id = group_id
     event.message_obj.self_id = self_id
     event.message_obj.message = []
     event.message_obj.group_name = ""
+    event.message_obj.message_id = message_id
     event.get_sender_id.return_value = str(sender_id)
     event.get_sender_name.return_value = sender_name
     event.message_str = message_str
