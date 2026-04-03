@@ -902,6 +902,37 @@ def SCORE(th):
 """ + _BRAND + _TAIL
 
 
+# ====== 活跃里程碑 ======
+def MILESTONE(th):
+    t = THEMES.get(th, THEMES["清新蓝"])
+    return _css(th) + f"""
+<style>
+.ms-hero{{text-align:center;padding:44px 28px 36px;background:linear-gradient(135deg,{t['stat_hdr1']},{t['stat_hdr2']});position:relative;overflow:hidden}}
+.ms-deco{{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;opacity:.12;font-size:30px;word-break:break-all;line-height:1.8;overflow:hidden}}
+.ms-days{{font-size:80px;font-weight:900;color:#fff;line-height:1;text-shadow:0 4px 20px rgba(0,0,0,.25)}}
+.ms-days-unit{{font-size:24px;font-weight:700;color:rgba(255,255,255,.9);margin-left:6px;vertical-align:middle}}
+.ms-days-label{{font-size:15px;color:rgba(255,255,255,.8);margin-top:6px;font-weight:600;letter-spacing:3px;text-transform:uppercase}}
+.ms-body{{padding:24px 28px 20px}}
+.ms-title-box{{background:{t['sec_bg']};border-radius:16px;padding:18px 24px;text-align:center;border:2px solid {t['sec_border']};margin-bottom:16px}}
+.ms-title-text{{font-size:30px;font-weight:900;color:{t['text']};line-height:1.3}}
+.ms-nick{{font-size:15px;color:{t['text2']};margin-top:8px;font-weight:600}}
+.ms-desc{{font-size:13px;color:{t['text2']};text-align:center;line-height:1.75;padding:0 4px 8px}}
+</style>
+<div class="ms-hero">
+  <div class="ms-deco">🎉✨🏅🎊🌟🎉✨🏅🎊🌟🎉✨🏅🎊🌟🎉✨🏅🎊🌟🎉✨🏅🎊🌟🎉✨🏅🎊🌟</div>
+  <div class="ms-days">{{{{ streak }}}}<span class="ms-days-unit">天</span></div>
+  <div class="ms-days-label">连续活跃</div>
+</div>
+<div class="ms-body">
+  <div class="ms-title-box">
+    <div class="ms-title-text">{{{{ title }}}}</div>
+    <div class="ms-nick">🎖 {{{{ nickname }}}} 荣获此称号</div>
+  </div>
+  <div class="ms-desc">坚持就是胜利！继续保持活跃，解锁更高荣誉～</div>
+</div>
+""" + _BRAND + _TAIL
+
+
 # ====== 每日一问 ======
 def TOPIC(th):
     t = THEMES.get(th, THEMES["清新蓝"])

@@ -343,7 +343,10 @@ class GroupActivityPlugin(Star):
         # 里程碑检测只在真正的首次发言时触发
         if old_date != today:
             if streak in (7, 14, 30) and self.config.get("enabled"):
-                asyncio.create_task(self._announce_milestone(gid, sid, nick, streak))
+                asyncio.create_task(self._announce_milestone(
+                    gid, sid, nick, streak,
+                    msg_id=getattr(event.message_obj, "message_id", None),
+                ))
 
         if warned and self._bot_self_id and self.config.get("ai_enabled") and self.config.get("ai_appeal"):
             msg = event.message_str or ""
@@ -454,16 +457,48 @@ class GroupActivityPlugin(Star):
         if streak >= 3:  return "🌿 活跃中"
         return "🌱 新萌"
 
-    async def _announce_milestone(self, gid, sid, nick, streak):
-        """在群里广播连续活跃里程碑"""
+    async def _announce_milestone(self, gid, sid, nick, streak, msg_id=None):
+        """在群里广播连续活跃里程碑：先引用发言，再发精美图片卡片"""
         titles = {7: "🥈 银牌常客", 14: "🥇 金牌驻场", 30: "👑 传奇守护者"}
+        title = titles[streak]
         try:
             cl = await self._cli()
-            if cl:
-                await cl.api.call_action("send_group_msg", group_id=int(gid),
-                    message=f"🎉 [CQ:at,qq={sid}] 连续活跃 {streak} 天，荣获称号【{self._cq_escape(titles[streak])}】！继续保持哦~")
+            if not cl:
+                return
+            # 第一步：引用该条发言，@提醒本人
+            reply_prefix = f"[CQ:reply,id={msg_id}]" if msg_id else ""
+            await cl.api.call_action("send_group_msg", group_id=int(gid),
+                message=f"{reply_prefix}[CQ:at,qq={sid}] 🎉 恭喜解锁活跃里程碑！")
         except Exception as e:
-            logger.warning(f"里程碑广播失败(群{gid}): {e}")
+            logger.warning(f"里程碑引用消息发送失败(群{gid}): {e}")
+            return
+        # 第二步：渲染并发送里程碑图片卡片
+        try:
+            display = nick if nick != sid else "成员"
+            img_result = await asyncio.wait_for(
+                self._img(T.MILESTONE, {
+                    "streak": streak,
+                    "title": title,
+                    "nickname": display,
+                }, gid=gid),
+                timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"里程碑图片渲染失败(群{gid}): {e}")
+            return
+        if not img_result:
+            return
+        try:
+            cl2 = await self._cli()
+            if not cl2:
+                return
+            if isinstance(img_result, bytes):
+                msg_content = [{"type": "image", "data": {"file": f"base64://{base64.b64encode(img_result).decode()}"}}]
+            else:
+                msg_content = [{"type": "image", "data": {"file": img_result}}]
+            await cl2.api.call_action("send_group_msg", group_id=int(gid), message=msg_content)
+        except Exception as e:
+            logger.warning(f"里程碑图片发送失败(群{gid}): {e}")
 
     # ==================== 定时检测 ====================
 
